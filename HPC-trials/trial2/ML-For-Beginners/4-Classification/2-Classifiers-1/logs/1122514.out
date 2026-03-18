@@ -1,0 +1,26 @@
+Job started at Tue Mar 17 12:05:51 +03 2026
+Running on node: cn03
+---
+/cta/capps/python/3.12.9/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1256: FutureWarning: 'multi_class' was deprecated in version 1.5 and will be removed in 1.7. Use OneVsRestClassifier(LogisticRegression(..)) instead. Leave it to its default value to avoid this warning.
+  warnings.warn(
+/cta/capps/python/3.12.9/lib/python3.12/site-packages/sklearn/base.py:493: UserWarning: X does not have valid feature names, but LogisticRegression was fitted with feature names
+  warnings.warn(
+Accuracy is 0.8065054211843202
+ingredients: Index(['avocado', 'cucumber', 'seaweed', 'smoked_salmon', 'vinegar', 'wasabi',
+       'wine'],
+      dtype='object')
+cuisine: japanese
+              precision    recall  f1-score   support
+
+     chinese       0.78      0.71      0.74       248
+      indian       0.91      0.88      0.89       240
+    japanese       0.71      0.79      0.75       228
+      korean       0.86      0.81      0.83       246
+        thai       0.78      0.85      0.81       237
+
+    accuracy                           0.81      1199
+   macro avg       0.81      0.81      0.81      1199
+weighted avg       0.81      0.81      0.81      1199
+
+---
+Job finished at Tue Mar 17 12:06:05 +03 2026
