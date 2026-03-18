@@ -1,0 +1,10 @@
+Job started at Tue Mar 17 11:53:02 +03 2026
+Running on node: cn03
+---
+=== Linear Regression Results ===
+Intercept : 1.0215  (true: 1.0)
+Slope     : 1.9540  (true: 2.0)
+MSE       : 0.008066
+Done.
+---
+Job finished at Tue Mar 17 11:53:06 +03 2026
