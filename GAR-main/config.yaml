@@ -1,0 +1,16 @@
+# GAR experiment config (reference)
+# Override via env: GAR_PROJECT_ROOT, GAR_DATA_DIR
+
+data:
+  raw: data/raw/dataset.csv
+  processed: data/processed
+  benchmarks: data/benchmarks
+  models: data/models/fine_tuned
+
+paths:
+  markdown: data/benchmarks/Markdown
+  qrels: data/benchmarks
+
+outputs:
+  fine_tuned: outputs/fine-tuned-model
+  hybrid_search: outputs/hybrid_search
