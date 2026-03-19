@@ -7,6 +7,7 @@
 #SBATCH --mem=64G
 #SBATCH --time=72:00:00
 #SBATCH --partition=cuda
+#SBATCH --qos=cuda
 #SBATCH --gres=gpu:tesla_v100:1
 #SBATCH --output=logs/%j.out
 #SBATCH --error=logs/%j.err
