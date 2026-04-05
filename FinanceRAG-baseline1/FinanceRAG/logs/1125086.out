@@ -1,0 +1,42 @@
+Resume job started at Thu Mar 26 11:20:25 +03 2026
+Running on node: cn07
+SLURM_JOB_ID=1125086
+Thu Mar 26 11:20:25 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 570.124.06             Driver Version: 570.124.06     CUDA Version: 12.8     |
+|-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA RTX A5000               On  |   00000000:5E:00.0 Off |                  Off |
+| 30%   40C    P8             16W /  230W |       2MiB /  24564MiB |      0%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+                                                                                         
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+
+---
+3.46.0
+HOST: cn07
+PWD: /cta/users/zeynep.deniz/FinanceRag_Baseline/FinanceRAG
+PATH: /cta/users/zeynep.deniz/.local/bin:/cta/apps/opt/spack/linux-ubuntu24.04-x86_64/gcc-13.3.0/sqlite-3.46.0-36f2sjv/bin:/cta/apps/opt/spack/linux-ubuntu24.04-x86_64/gcc-13.3.0/readline-8.2-ezqe4s3/bin:/cta/apps/opt/spack/linux-ubuntu24.04-x86_64/gcc-13.3.0/ncurses-6.5-6asmdu4/bin:/cta/capps/python/3.12.9/etc/profile.d:/cta/capps/python/3.12.9/etc/fish/conf.d:/cta/capps/python/3.12.9/etc:/cta/capps/python/3.12.9/bin:/cta/users/zeynep.deniz/.local/bin:/cta/capps/sra-tools/3.2.1/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin
+/cta/capps/python/3.12.9/bin/python3
+Python 3.12.2
+Rerank (FinDER) initiating...
+Rerank (FinDER) completed.
+Rerank (ConvFinQA) initiating...
+Rerank (ConvFinQA) completed.
+Rerank (FinQA) initiating...
+Rerank (FinQA) completed.
+Rerank (TATQA) initiating...
+Rerank (TATQA) completed.
+Rerank (MultiHiertt) initiating...
+Rerank (MultiHiertt) completed.
+---
+Resume job finished at Thu Mar 26 20:11:06 +03 2026

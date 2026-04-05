@@ -1,0 +1,25 @@
+Job started at Thu Mar 26 23:03:56 +03 2026
+Running on node: cn05
+SLURM_JOB_ID=1125320
+---
+Defaulting to user installation because normal site-packages is not writeable
+Requirement already satisfied: pandas in /cta/capps/python/3.12.9/lib/python3.12/site-packages (2.2.2)
+Requirement already satisfied: openpyxl in /cta/capps/python/3.12.9/lib/python3.12/site-packages (3.1.5)
+Requirement already satisfied: numpy>=1.26.0 in /cta/capps/python/3.12.9/lib/python3.12/site-packages (from pandas) (1.26.4)
+Requirement already satisfied: python-dateutil>=2.8.2 in /cta/capps/python/3.12.9/lib/python3.12/site-packages (from pandas) (2.9.0.post0)
+Requirement already satisfied: pytz>=2020.1 in /cta/capps/python/3.12.9/lib/python3.12/site-packages (from pandas) (2024.1)
+Requirement already satisfied: tzdata>=2022.7 in /cta/capps/python/3.12.9/lib/python3.12/site-packages (from pandas) (2023.3)
+Requirement already satisfied: et-xmlfile in /cta/capps/python/3.12.9/lib/python3.12/site-packages (from openpyxl) (1.1.0)
+Requirement already satisfied: six>=1.5 in /cta/capps/python/3.12.9/lib/python3.12/site-packages (from python-dateutil>=2.8.2->pandas) (1.16.0)
+Loaded dataset: TATQA
+Loaded dataset: FinanceBench
+Loaded dataset: MultiHiertt
+Loaded dataset: FinQA
+Loaded dataset: FinQABench
+Loaded dataset: FinDER
+Loaded dataset: ConvFinQA
+
+Done. Excel file saved to: results/final_merged.xlsx
+Total rows written: 46710
+Rows not found: 0
+---

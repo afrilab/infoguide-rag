@@ -1,0 +1,38 @@
+  0%|          | 0.00/19.1M [00:00<?, ?B/s]  5%|▌         | 1.00M/19.1M [00:00<00:15, 1.22MB/s] 10%|█         | 2.00M/19.1M [00:01<00:08, 2.19MB/s] 16%|█▌        | 3.00M/19.1M [00:01<00:05, 3.32MB/s] 26%|██▌       | 5.00M/19.1M [00:01<00:02, 5.37MB/s] 42%|████▏     | 8.00M/19.1M [00:01<00:01, 9.60MB/s] 58%|█████▊    | 11.0M/19.1M [00:01<00:00, 13.6MB/s] 79%|███████▊  | 15.0M/19.1M [00:01<00:00, 17.8MB/s] 94%|█████████▍| 18.0M/19.1M [00:01<00:00, 20.7MB/s]100%|██████████| 19.1M/19.1M [00:01<00:00, 10.4MB/s]
+2026-03-24 13:06:19.920462: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-03-24 13:06:20.915443: E external/local_xla/xla/stream_executor/cuda/cuda_fft.cc:467] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+E0000 00:00:1774346781.290513  209691 cuda_dnn.cc:8579] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+E0000 00:00:1774346781.395886  209691 cuda_blas.cc:1407] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+W0000 00:00:1774346782.257685  209691 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
+W0000 00:00:1774346782.258235  209691 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
+W0000 00:00:1774346782.258563  209691 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
+W0000 00:00:1774346782.258936  209691 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
+2026-03-24 13:06:22.344508: I tensorflow/core/platform/cpu_feature_guard.cc:210] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 AVX512F AVX512_VNNI FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+Traceback (most recent call last):
+  File "/cta/users/zeynep.deniz/FinanceRag_Baseline/FinanceRAG/rerank.py", line 8, in <module>
+    from financerag.common import post_process, save_results_top_k
+  File "/cta/users/zeynep.deniz/FinanceRag_Baseline/FinanceRAG/financerag/__init__.py", line 1, in <module>
+    from .retrieval import (
+  File "/cta/users/zeynep.deniz/FinanceRag_Baseline/FinanceRAG/financerag/retrieval/__init__.py", line 1, in <module>
+    from .bm25 import BM25Retriever
+  File "/cta/users/zeynep.deniz/FinanceRag_Baseline/FinanceRAG/financerag/retrieval/bm25.py", line 5, in <module>
+    from nltk.tokenize import word_tokenize
+  File "/cta/capps/python/3.12.9/lib/python3.12/site-packages/nltk/__init__.py", line 153, in <module>
+    from nltk.translate import *
+  File "/cta/capps/python/3.12.9/lib/python3.12/site-packages/nltk/translate/__init__.py", line 24, in <module>
+    from nltk.translate.meteor_score import meteor_score as meteor
+  File "/cta/capps/python/3.12.9/lib/python3.12/site-packages/nltk/translate/meteor_score.py", line 13, in <module>
+    from nltk.corpus import WordNetCorpusReader, wordnet
+  File "/cta/capps/python/3.12.9/lib/python3.12/site-packages/nltk/corpus/__init__.py", line 64, in <module>
+    from nltk.corpus.reader import *
+  File "/cta/capps/python/3.12.9/lib/python3.12/site-packages/nltk/corpus/reader/__init__.py", line 106, in <module>
+    from nltk.corpus.reader.panlex_lite import *
+  File "/cta/capps/python/3.12.9/lib/python3.12/site-packages/nltk/corpus/reader/panlex_lite.py", line 15, in <module>
+    import sqlite3
+  File "/cta/capps/python/3.12.9/lib/python3.12/sqlite3/__init__.py", line 57, in <module>
+    from sqlite3.dbapi2 import *
+  File "/cta/capps/python/3.12.9/lib/python3.12/sqlite3/dbapi2.py", line 27, in <module>
+    from _sqlite3 import *
+ImportError: /cta/capps/python/3.12.9/lib/python3.12/lib-dynload/_sqlite3.cpython-312-x86_64-linux-gnu.so: undefined symbol: sqlite3_deserialize

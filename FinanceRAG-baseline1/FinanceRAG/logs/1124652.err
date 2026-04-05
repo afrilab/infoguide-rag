@@ -1,0 +1,39 @@
+  0%|          | 0.00/19.1M [00:00<?, ?B/s]  5%|▌         | 1.00M/19.1M [00:00<00:13, 1.38MB/s] 10%|█         | 2.00M/19.1M [00:00<00:07, 2.36MB/s] 16%|█▌        | 3.00M/19.1M [00:01<00:04, 3.55MB/s] 26%|██▌       | 5.00M/19.1M [00:01<00:02, 6.33MB/s] 37%|███▋      | 7.00M/19.1M [00:01<00:01, 9.07MB/s] 52%|█████▏    | 10.0M/19.1M [00:01<00:00, 13.4MB/s] 68%|██████▊   | 13.0M/19.1M [00:01<00:00, 15.5MB/s] 79%|███████▊  | 15.0M/19.1M [00:01<00:00, 16.6MB/s] 89%|████████▉ | 17.0M/19.1M [00:01<00:00, 16.4MB/s]100%|██████████| 19.1M/19.1M [00:02<00:00, 15.8MB/s]100%|██████████| 19.1M/19.1M [00:02<00:00, 9.97MB/s]
+Traceback (most recent call last):
+  File "/cta/users/zeynep.deniz/FinanceRag_Baseline/FinanceRAG/pre_retrieval.py", line 172, in <module>
+    pre_retrieval(dataset_dir)
+  File "/cta/users/zeynep.deniz/FinanceRag_Baseline/FinanceRAG/pre_retrieval.py", line 158, in pre_retrieval
+    expand_queries(subset, dataset_dir, llm)
+  File "/cta/users/zeynep.deniz/FinanceRag_Baseline/FinanceRAG/pre_retrieval.py", line 112, in expand_queries
+    new_text = llm.invoke(prompt).content
+               ^^^^^^^^^^^^^^^^^^
+  File "/cta/users/zeynep.deniz/.local/lib/python3.12/site-packages/langchain_core/language_models/chat_models.py", line 454, in invoke
+    self.generate_prompt(
+  File "/cta/users/zeynep.deniz/.local/lib/python3.12/site-packages/langchain_core/language_models/chat_models.py", line 1201, in generate_prompt
+    return self.generate(prompt_messages, stop=stop, callbacks=callbacks, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/cta/users/zeynep.deniz/.local/lib/python3.12/site-packages/langchain_core/language_models/chat_models.py", line 1010, in generate
+    self._generate_with_cache(
+  File "/cta/users/zeynep.deniz/.local/lib/python3.12/site-packages/langchain_core/language_models/chat_models.py", line 1313, in _generate_with_cache
+    result = self._generate(
+             ^^^^^^^^^^^^^^^
+  File "/cta/users/zeynep.deniz/.local/lib/python3.12/site-packages/langchain_openai/chat_models/base.py", line 1486, in _generate
+    _handle_openai_bad_request(e)
+  File "/cta/users/zeynep.deniz/.local/lib/python3.12/site-packages/langchain_openai/chat_models/base.py", line 1483, in _generate
+    raw_response = self.client.with_raw_response.create(**payload)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/cta/users/zeynep.deniz/.local/lib/python3.12/site-packages/openai/_legacy_response.py", line 367, in wrapped
+    return cast(LegacyAPIResponse[R], func(*args, **kwargs))
+                                      ^^^^^^^^^^^^^^^^^^^^^
+  File "/cta/users/zeynep.deniz/.local/lib/python3.12/site-packages/openai/_utils/_utils.py", line 286, in wrapper
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/cta/users/zeynep.deniz/.local/lib/python3.12/site-packages/openai/resources/chat/completions/completions.py", line 1211, in create
+    return self._post(
+           ^^^^^^^^^^^
+  File "/cta/users/zeynep.deniz/.local/lib/python3.12/site-packages/openai/_base_client.py", line 1297, in post
+    return cast(ResponseT, self.request(cast_to, opts, stream=stream, stream_cls=stream_cls))
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/cta/users/zeynep.deniz/.local/lib/python3.12/site-packages/openai/_base_client.py", line 1070, in request
+    raise self._make_status_error_from_response(err.response) from None
+openai.BadRequestError: Error code: 400 - {'error': {'message': "We could not parse the JSON body of your request. (HINT: This likely means you aren't using your HTTP library correctly. The OpenAI API expects a JSON payload, but what was sent was not valid JSON. If you have trouble figuring out how to fix this, please contact us through our help center at help.openai.com.)", 'type': 'invalid_request_error', 'param': None, 'code': None}}

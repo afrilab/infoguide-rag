@@ -1,0 +1,7 @@
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+  File "/cta/capps/python/3.12.9/lib/python3.12/sqlite3/__init__.py", line 57, in <module>
+    from sqlite3.dbapi2 import *
+  File "/cta/capps/python/3.12.9/lib/python3.12/sqlite3/dbapi2.py", line 27, in <module>
+    from _sqlite3 import *
+ImportError: /cta/capps/python/3.12.9/lib/python3.12/lib-dynload/_sqlite3.cpython-312-x86_64-linux-gnu.so: undefined symbol: sqlite3_deserialize
