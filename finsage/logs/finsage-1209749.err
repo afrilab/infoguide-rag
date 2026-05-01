@@ -1,0 +1,7 @@
+[2026-04-27 13:00:35 +0300] [586715] [INFO] Starting gunicorn 25.3.0
+[2026-04-27 13:00:35 +0300] [586715] [INFO] Listening at: http://0.0.0.0:6005 (586715)
+[2026-04-27 13:00:35 +0300] [586715] [INFO] Using worker: sync
+[2026-04-27 13:00:35 +0300] [587257] [INFO] Booting worker with pid: 587257
+[2026-04-27 13:00:35 +0300] [586715] [INFO] Control socket listening at /cta/users/teoman.arabul/.gunicorn/gunicorn.ctl
+Loading checkpoint shards:   0%|          | 0/3 [00:00<?, ?it/s]Loading checkpoint shards: 100%|██████████| 3/3 [00:00<00:00, 42.95it/s]
+slurmstepd-cn11: error: *** JOB 1209749 ON cn11 CANCELLED AT 2026-04-27T13:19:44 ***

@@ -115,18 +115,20 @@ class BM25:
             scores.append(score)
         return scores
 
+
 class QuestionSimilarityFinder:
     def __init__(self, db_path=None, table_path=None):
+        self.table_path = table_path
+
         if db_path is None:
-            # self.db_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'log', 'frequent_qa.db')
-            self.db_path = '/root/autodl-tmp/dir_tzh/dev/RAG_Agent/log/frequent_qa.db'
+            self.db_path = '/cta/users/teoman.arabul/finsage/logs/frequent_qa.db'
             print(f"Using default database path: {self.db_path}")
         else:
             self.db_path = db_path
-            self.table_path = table_path
+
         print(self.db_path)
-        print(self.table_path)    
-    
+        print(self.table_path)
+        
 
     def find_similar_questions_db(self, input_question, top_n=5, threshold=0.55, use_normalization=True):
         conn = sqlite3.connect(self.db_path)

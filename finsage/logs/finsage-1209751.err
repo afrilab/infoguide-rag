@@ -1,0 +1,8 @@
+[2026-04-27 13:38:29 +0300] [587994] [INFO] Starting gunicorn 25.3.0
+[2026-04-27 13:38:29 +0300] [587994] [INFO] Listening at: http://0.0.0.0:6005 (587994)
+[2026-04-27 13:38:29 +0300] [587994] [INFO] Using worker: sync
+[2026-04-27 13:38:29 +0300] [588310] [INFO] Booting worker with pid: 588310
+[2026-04-27 13:38:30 +0300] [587994] [INFO] Control socket listening at /cta/users/teoman.arabul/.gunicorn/gunicorn.ctl
+Loading checkpoint shards:   0%|          | 0/3 [00:00<?, ?it/s]Loading checkpoint shards: 100%|██████████| 3/3 [00:00<00:00, 76.28it/s]
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  1.32it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  1.32it/s]
+Split strings:   0%|          | 0/1 [00:00<?, ?it/s]                                                    Stem Tokens:   0%|          | 0/1 [00:00<?, ?it/s]                                                  BM25S Retrieve:   0%|          | 0/1 [00:00<?, ?it/s]                                                     slurmstepd-cn11: error: *** JOB 1209751 ON cn11 CANCELLED AT 2026-04-27T13:57:30 ***

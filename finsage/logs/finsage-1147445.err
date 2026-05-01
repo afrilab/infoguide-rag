@@ -1,0 +1,12 @@
+[2026-04-12 17:42:28 +0300] [25931] [INFO] Starting gunicorn 25.3.0
+[2026-04-12 17:42:28 +0300] [25931] [INFO] Listening at: http://0.0.0.0:6005 (25931)
+[2026-04-12 17:42:28 +0300] [25931] [INFO] Using worker: sync
+[2026-04-12 17:42:28 +0300] [26226] [INFO] Booting worker with pid: 26226
+[2026-04-12 17:42:28 +0300] [25931] [INFO] Control socket listening at /cta/users/teoman.arabul/.gunicorn/gunicorn.ctl
+Loading checkpoint shards:   0%|          | 0/3 [00:00<?, ?it/s]Loading checkpoint shards: 100%|██████████| 3/3 [00:00<00:00, 43.80it/s]
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:02<00:00,  2.03s/it]Batches: 100%|██████████| 1/1 [00:02<00:00,  2.03s/it]
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 10.94it/s]
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 11.18it/s]
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 10.44it/s]
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 10.99it/s]
+Split strings:   0%|          | 0/1 [00:00<?, ?it/s]                                                    Stem Tokens:   0%|          | 0/1 [00:00<?, ?it/s]                                                  BM25S Retrieve:   0%|          | 0/1 [00:00<?, ?it/s]                                                     slurmstepd-cn11: error: *** JOB 1147445 ON cn11 CANCELLED AT 2026-04-12T21:45:45 DUE TO TIME LIMIT ***

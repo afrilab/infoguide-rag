@@ -1,0 +1,2 @@
+ERROR: pip's dependency resolver does not currently take into account all the packages that are installed. This behaviour is the source of the following dependency conflicts.
+transformers 4.37.2 requires tokenizers<0.19,>=0.14, but you have tokenizers 0.22.2 which is incompatible.

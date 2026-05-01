@@ -222,7 +222,13 @@ def create_app():
             })
         
         except Exception as e:
-            current_app.logger.error(f"An error occurred in /api_chat endpoint: {str(e)}")
+            import traceback
+            tb = traceback.format_exc()
+            with open("/cta/users/teoman.arabul/finsage/logs/api_chat_traceback.log", "a") as f:
+                f.write("\n--- API_CHAT ERROR ---\n")
+                f.write(tb)
+                f.write("\n")
+            current_app.logger.error("Full traceback:\n%s", tb)
             return GlobalResponseHandler.error(message=str(e))
 
 

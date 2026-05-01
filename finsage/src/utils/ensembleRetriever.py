@@ -191,8 +191,19 @@ class EnsembleRetriever:
             
             # logger.info(f"Top {self.bm25_k} BM25 results:")
             for idx, score in zip(top_k_ids, top_k_scores):
+                # bm25s may return either numeric row indexes or saved corpus ids/dicts.
+                # EnsembleRetriever expects integer positions into self.chunk_metadata.
+                if not isinstance(idx, int):
+                    if isinstance(idx, dict):
+                        idx = idx.get("id") or idx.get("doc_id")
+                    idx = self.docid2idx.get(str(idx), -1)
+
+                if idx == -1:
+                    continue
+
                 if idx in seen_ids:
                     continue
+
                 seen_ids.add(idx)
                 ids = [idx]
                 doc_metadata = self.chunk_metadata[idx]
