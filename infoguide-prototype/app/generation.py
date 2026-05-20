@@ -20,15 +20,30 @@ def load_gpt_client():
 
 def build_context_from_chunks(chunks):
     context_parts = []
+    used_parent_ids = set()
 
     for index, chunk in enumerate(chunks, start=1):
         chunk_id = chunk.get("chunk_id", index)
-        heading = chunk.get("heading", "No heading")
+
+        metadata = chunk.get("metadata", {}) or {}
+
+        heading = metadata.get("heading") or chunk.get("heading", "No heading")
         text = chunk.get("text", "")
 
-        context_parts.append(
-            f"[Chunk {chunk_id} | Heading: {heading}]\n{text}"
-        )
+        parent_id = metadata.get("parent_id")
+        parent_text = metadata.get("parent_text")
+        use_parent_child = metadata.get("use_parent_child", False)
+
+        context_block = f"[Chunk {chunk_id} | Heading: {heading}]\n{text}"
+
+        if use_parent_child and parent_text and parent_id not in used_parent_ids:
+            context_block += (
+                "\n\n[Parent Section Context]\n"
+                f"{parent_text}"
+            )
+            used_parent_ids.add(parent_id)
+
+        context_parts.append(context_block)
 
     return "\n\n---\n\n".join(context_parts)
 
@@ -44,6 +59,7 @@ Answer the user's question using ONLY the provided context chunks.
 
 Rules:
 - Do not use outside knowledge.
+- Use both retrieved chunks and parent section context when available.
 - If the answer is not in the context, say:
   "The provided documents do not contain enough information to answer this question."
 - Be clear and concise.

@@ -2,8 +2,10 @@ import streamlit as st
 from ingestion import save_uploaded_file, extract_text
 from preprocessing import preprocess_text
 from chunking import (
-    heading_based_chunk_text,
-    save_chunks
+    CHUNKING_STRATEGIES,
+    chunk_text_by_strategy,
+    save_chunks,
+    save_parent_sections
 )
 from embeddings import (
     MODEL_NAME as BGE_MODEL_NAME,
@@ -257,30 +259,51 @@ def show_chunking_page():
     )
 
     st.markdown(
-        '<div class="subtitle">Step 3: Create chunks using heading-based chunking.</div>',
+        '<div class="subtitle">Step 3: Create document chunks using strategy-based chunking.</div>',
         unsafe_allow_html=True
     )
 
     st.success("Preprocessed text is ready.")
 
-    st.subheader("Selected Chunking Method")
-    st.info("Method: Heading-Based Chunking")
+    st.subheader("Choose Chunking Strategy")
 
-    st.markdown(
-        """
-        This method detects headings such as:
-
-        - 1 Introduction
-        - 2.1 Risk Management
-        - CHAPTER 3
-        - SECTION 4
-        - # Markdown Heading
-
-        Then it groups the text under each heading into chunks.
-        """
+    chunking_strategy = st.radio(
+        "Select chunking strategy",
+        ["Recommended", "High Accuracy", "Fast"],
+        index=0
     )
 
-    if st.button("Start Heading-Based Chunking"):
+    st.session_state["chunking_strategy"] = chunking_strategy
+
+    strategy_info = CHUNKING_STRATEGIES.get(chunking_strategy, {})
+
+    if chunking_strategy == "Recommended":
+        st.info(
+            "Recommended: heading-aware recursive chunking with overlap and metadata. "
+            "Best default option for company documents, policies, reports, and internal guidelines."
+        )
+
+    elif chunking_strategy == "High Accuracy":
+        st.info(
+            "High Accuracy: uses smaller searchable chunks and stores parent-section context. "
+            "Best for detailed company document Q&A where answer grounding is important."
+        )
+
+    elif chunking_strategy == "Fast":
+        st.info(
+            "Fast: simple heading-aware chunking. Faster, but less accurate for detailed questions."
+        )
+
+    with st.expander("Technical details"):
+        st.write(f"Description: {strategy_info.get('description', '-')}")
+        st.write(f"Max chunk size: {strategy_info.get('max_chars', '-')}")
+        st.write(f"Overlap size: {strategy_info.get('overlap_chars', '-')}")
+        st.write(f"Recursive splitting: {strategy_info.get('use_recursive', '-')}")
+        st.write(f"Parent-child context: {strategy_info.get('use_parent_child', '-')}")
+
+    st.markdown("---")
+
+    if st.button(f"Start {chunking_strategy} Chunking"):
         try:
             preprocessed_text = st.session_state.get("preprocessed_text", "")
 
@@ -288,14 +311,21 @@ def show_chunking_page():
                 st.warning("No preprocessed text found. Please complete preprocessing first.")
                 return
 
-            with st.spinner("Heading-based chunking is running..."):
-                chunks, logs = heading_based_chunk_text(preprocessed_text)
-                output_path = save_chunks(chunks)
+            with st.spinner(f"{chunking_strategy} chunking is running..."):
+                chunks, logs, parents = chunk_text_by_strategy(
+                    preprocessed_text,
+                    strategy_name=chunking_strategy
+                )
+
+                chunks_output_path = save_chunks(chunks)
+                parents_output_path = save_parent_sections(parents)
 
             st.session_state["chunks"] = chunks
+            st.session_state["parent_sections"] = parents
             st.session_state["chunking_logs"] = logs
             st.session_state["chunking_done"] = True
-            st.session_state["chunks_output_path"] = str(output_path)
+            st.session_state["chunks_output_path"] = str(chunks_output_path)
+            st.session_state["parents_output_path"] = str(parents_output_path)
 
             for log in logs:
                 st.info(log)
@@ -309,20 +339,36 @@ def show_chunking_page():
         st.markdown("---")
         st.success("Step 3 completed: Chunking is finished.")
 
+        st.info(f"Selected strategy: {st.session_state.get('chunking_strategy')}")
         st.info(f"Chunks saved to: {st.session_state['chunks_output_path']}")
+
+        if st.session_state.get("parents_output_path"):
+            st.info(f"Parent sections saved to: {st.session_state['parents_output_path']}")
 
         chunks = st.session_state.get("chunks", [])
 
         st.subheader("Chunk Preview")
 
         for chunk in chunks[:5]:
+            metadata = chunk.get("metadata", {})
+
             st.markdown(f"### Chunk {chunk['chunk_id']}")
 
-            if "heading" in chunk:
-                st.info(f"Heading: {chunk['heading']}")
+            st.info(f"Heading: {metadata.get('heading', chunk.get('heading', '-'))}")
 
-            if "sub_chunk_id" in chunk:
-                st.caption(f"Sub-chunk: {chunk['sub_chunk_id']}")
+            col1, col2, col3 = st.columns(3)
+
+            with col1:
+                st.caption(f"Section index: {metadata.get('section_index', '-')}")
+
+            with col2:
+                st.caption(f"Sub-chunk: {metadata.get('sub_chunk_id', '-')}")
+
+            with col3:
+                st.caption(f"Characters: {chunk.get('char_count', '-')}")
+
+            if metadata.get("use_parent_child"):
+                st.caption(f"Parent ID: {metadata.get('parent_id', '-')}")
 
             st.text_area(
                 f"Chunk {chunk['chunk_id']}",
@@ -336,6 +382,7 @@ def show_chunking_page():
         if st.button("Continue to Embedding"):
             st.session_state["page"] = "embedding"
             st.rerun()
+            
 def show_embedding_page():
     st.markdown(
         '<div class="main-title">Embedding</div>',

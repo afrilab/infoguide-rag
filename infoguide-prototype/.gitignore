@@ -1,0 +1,17 @@
+# Environment
+.env
+venv/
+__pycache__/
+*.pyc
+
+# Generated pipeline files
+data/processed/
+data/chunks/
+data/indexes/
+
+# Uploaded/raw documents
+data/raw/
+
+# macOS
+.DS_Store
+*/.DS_Store

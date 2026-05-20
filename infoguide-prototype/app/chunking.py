@@ -9,7 +9,38 @@ CHUNKS_DIR = Path("data/chunks")
 CHUNKS_OUTPUT_PATH = CHUNKS_DIR / "chunks.json"
 
 MIN_CHUNK_CHARS = 300
-MAX_CHUNK_CHARS = 1500
+
+FAST_MAX_CHARS = 2200
+RECOMMENDED_MAX_CHARS = 1800
+HIGH_ACCURACY_MAX_CHARS = 1400
+
+RECOMMENDED_OVERLAP_CHARS = 250
+HIGH_ACCURACY_OVERLAP_CHARS = 300
+
+
+CHUNKING_STRATEGIES = {
+    "Fast": {
+        "description": "Simple heading-aware chunking. Faster, less detailed.",
+        "max_chars": FAST_MAX_CHARS,
+        "overlap_chars": 0,
+        "use_recursive": False,
+        "use_parent_child": False,
+    },
+    "Recommended": {
+        "description": "Heading-aware recursive chunking with overlap and metadata.",
+        "max_chars": RECOMMENDED_MAX_CHARS,
+        "overlap_chars": RECOMMENDED_OVERLAP_CHARS,
+        "use_recursive": True,
+        "use_parent_child": False,
+    },
+    "High Accuracy": {
+        "description": "Recommended mode plus parent-section metadata for context expansion.",
+        "max_chars": HIGH_ACCURACY_MAX_CHARS,
+        "overlap_chars": HIGH_ACCURACY_OVERLAP_CHARS,
+        "use_recursive": True,
+        "use_parent_child": True,
+    },
+}
 
 
 def log_step(logs, message):
@@ -21,21 +52,48 @@ def load_preprocessed_text(input_path=PREPROCESSED_TEXT_PATH):
         return f.read()
 
 
+def is_page_marker(line):
+    return bool(re.match(r"^---\s*Page\s+\d+\s*---$", line.strip(), re.IGNORECASE))
+
+
+def extract_page_number(line):
+    match = re.match(r"^---\s*Page\s+(\d+)\s*---$", line.strip(), re.IGNORECASE)
+    if match:
+        return int(match.group(1))
+    return None
+
+
+def is_table_marker(line):
+    line = line.strip()
+    return (
+        line.startswith("--- Page") and "Tables" in line
+    ) or re.match(r"^Table\s+\d+:", line, re.IGNORECASE)
+
+
 def is_heading(line):
     line = line.strip()
+
+    if not line:
+        return False
+
+    if is_page_marker(line):
+        return False
+
+    if is_table_marker(line):
+        return False
 
     if len(line) < 3:
         return False
 
-    if len(line) > 120:
+    if len(line) > 140:
         return False
 
     heading_patterns = [
-        r"^\d+(\.\d+)*\s+.+$",                 # 1 Introduction, 2.1 Method
-        r"^(Chapter|Section)\s+\d+.*$",        # Chapter 1, Section 2
-        r"^(CHAPTER|SECTION)\s+\d+.*$",        # CHAPTER 1
-        r"^#+\s+.+$",                          # Markdown headings
-        r"^[A-ZÇĞİÖŞÜ0-9][A-ZÇĞİÖŞÜ0-9\s\-:]{3,}$",  # ALL CAPS
+        r"^\d+(\.\d+)*\.?\s+.+$",                          # 1 Intro, 1. Intro, 2.1 Intro
+        r"^(Chapter|Section)\s+\d+.*$",                    # Chapter 1, Section 2
+        r"^(CHAPTER|SECTION)\s+\d+.*$",                    # CHAPTER 1, SECTION 2
+        r"^#+\s+.+$",                                      # Markdown headings
+        r"^[A-ZÇĞİÖŞÜ0-9][A-ZÇĞİÖŞÜ0-9\s\-:()/]{4,}$",    # ALL CAPS headings
     ]
 
     for pattern in heading_patterns:
@@ -45,44 +103,233 @@ def is_heading(line):
     return False
 
 
-def split_long_text(text, max_chars=MAX_CHUNK_CHARS):
-    paragraphs = text.split("\n\n")
+def get_overlap_text(text, overlap_chars):
+    if not text or overlap_chars <= 0:
+        return ""
+
+    text = text.strip()
+
+    if len(text) <= overlap_chars:
+        return text
+
+    overlap = text[-overlap_chars:]
+
+    sentence_boundary = max(
+        overlap.rfind(". "),
+        overlap.rfind("? "),
+        overlap.rfind("! ")
+    )
+
+    if sentence_boundary != -1:
+        return overlap[sentence_boundary + 2:].strip()
+
+    first_space = overlap.find(" ")
+    if first_space != -1:
+        return overlap[first_space + 1:].strip()
+
+    return overlap.strip()
+
+
+def split_long_paragraph(paragraph, max_chars, overlap_chars):
+    sentences = re.split(r"(?<=[.!?])\s+", paragraph)
 
     chunks = []
-    current_chunk = ""
+    current = ""
 
-    for paragraph in paragraphs:
-        paragraph = paragraph.strip()
+    for sentence in sentences:
+        sentence = sentence.strip()
 
-        if not paragraph:
+        if not sentence:
             continue
 
-        if len(current_chunk) + len(paragraph) <= max_chars:
-            current_chunk += paragraph + "\n\n"
+        if len(sentence) > max_chars:
+            if current.strip():
+                chunks.append(current.strip())
+                current = ""
+
+            start = 0
+            while start < len(sentence):
+                end = start + max_chars
+                part = sentence[start:end].strip()
+
+                if part:
+                    chunks.append(part)
+
+                next_start = end - overlap_chars if overlap_chars > 0 else end
+
+                if next_start <= start:
+                    next_start = end
+
+                start = next_start
+
+            continue
+
+        candidate = (current + " " + sentence).strip() if current else sentence
+
+        if len(candidate) <= max_chars:
+            current = candidate
         else:
-            if current_chunk.strip():
-                chunks.append(current_chunk.strip())
+            if current.strip():
+                chunks.append(current.strip())
 
-            current_chunk = paragraph + "\n\n"
+            overlap = get_overlap_text(current, overlap_chars)
+            current = (overlap + " " + sentence).strip() if overlap else sentence
 
-    if current_chunk.strip():
-        chunks.append(current_chunk.strip())
+    if current.strip():
+        chunks.append(current.strip())
 
     return chunks
 
 
-def heading_based_chunk_text(text):
-    logs = []
-    log_step(logs, "Step 1: Starting heading-based chunking...")
+def split_text_recursive(text, max_chars, overlap_chars):
+    paragraphs = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
 
+    chunks = []
+    current = ""
+
+    for paragraph in paragraphs:
+        if len(paragraph) > max_chars:
+            if current.strip():
+                chunks.append(current.strip())
+                current = ""
+
+            chunks.extend(split_long_paragraph(paragraph, max_chars, overlap_chars))
+            continue
+
+        candidate = (current + "\n\n" + paragraph).strip() if current else paragraph
+
+        if len(candidate) <= max_chars:
+            current = candidate
+        else:
+            if current.strip():
+                chunks.append(current.strip())
+
+            overlap = get_overlap_text(current, overlap_chars)
+            current = (overlap + "\n\n" + paragraph).strip() if overlap else paragraph
+
+    if current.strip():
+        chunks.append(current.strip())
+
+    return chunks
+
+
+def split_text_simple(text, max_chars):
+    paragraphs = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
+
+    chunks = []
+    current = ""
+
+    for paragraph in paragraphs:
+        candidate = (current + "\n\n" + paragraph).strip() if current else paragraph
+
+        if len(candidate) <= max_chars:
+            current = candidate
+        else:
+            if current.strip():
+                chunks.append(current.strip())
+
+            current = paragraph
+
+    if current.strip():
+        chunks.append(current.strip())
+
+    return chunks
+
+
+def build_embedded_text(document_title, heading, content):
+    parts = []
+
+    if document_title:
+        parts.append(f"Document: {document_title}")
+
+    if heading and heading != "Document Start":
+        parts.append(f"Section: {heading}")
+
+    parts.append(f"Content:\n{content.strip()}")
+
+    return "\n".join(parts)
+
+
+def detect_document_title(text):
+    """
+    Detects a meaningful document title from the first part of the document.
+    Avoids page numbers, metadata labels, table of contents lines, and very short numeric lines.
+    """
+
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+
+    bad_patterns = [
+        r"^\d+\s*\(\d+\)$",                         # 1 (28)
+        r"^page\s+\d+",                             # Page 1
+        r"^adopted by",                             # Adopted by...
+        r"^entry into force",                       # Entry into force...
+        r"^version and adoption date",              # Version and adoption date...
+        r"^document ownership",                     # Document ownership...
+        r"^implementation responsibility",          # Implementation responsibility...
+        r"^control responsibility",                 # Control responsibility...
+        r"^review cycle",                           # Review cycle...
+        r"^replaced document",                      # Replaced document...
+        r"^table of contents",                      # Table of Contents
+        r"^definitions$",                           # Definitions
+    ]
+
+    title_candidates = []
+
+    for line in lines[:40]:
+        lower_line = line.lower()
+
+        if len(line) < 5:
+            continue
+
+        if len(line) > 120:
+            continue
+
+        if is_page_marker(line):
+            continue
+
+        if any(re.match(pattern, lower_line, re.IGNORECASE) for pattern in bad_patterns):
+            continue
+
+        # Prefer lines that look like document titles
+        if any(keyword in lower_line for keyword in ["policy", "framework", "guideline", "procedure", "manual", "report"]):
+            title_candidates.append(line)
+
+    if title_candidates:
+        # Prefer the shortest clean title-like candidate
+        return sorted(title_candidates, key=len)[0]
+
+    # Fallback: return first clean non-metadata line
+    for line in lines[:40]:
+        lower_line = line.lower()
+
+        if len(line) < 5 or len(line) > 120:
+            continue
+
+        if any(re.match(pattern, lower_line, re.IGNORECASE) for pattern in bad_patterns):
+            continue
+
+        return line
+
+    return "Uploaded Document"
+
+
+def extract_sections(text):
     lines = text.splitlines()
 
     sections = []
+
     current_heading = "Document Start"
     current_content = []
+    current_page = None
+    section_start_page = None
 
     for line in lines:
         stripped_line = line.strip()
+
+        page_number = extract_page_number(stripped_line)
+        if page_number is not None:
+            current_page = page_number
+            continue
 
         if not stripped_line:
             current_content.append("")
@@ -92,55 +339,174 @@ def heading_based_chunk_text(text):
             if current_content:
                 sections.append({
                     "heading": current_heading,
-                    "content": "\n".join(current_content).strip()
+                    "content": "\n".join(current_content).strip(),
+                    "start_page": section_start_page,
+                    "end_page": current_page,
                 })
 
             current_heading = stripped_line
             current_content = []
+            section_start_page = current_page
         else:
+            if section_start_page is None:
+                section_start_page = current_page
+
             current_content.append(stripped_line)
 
     if current_content:
         sections.append({
             "heading": current_heading,
-            "content": "\n".join(current_content).strip()
+            "content": "\n".join(current_content).strip(),
+            "start_page": section_start_page,
+            "end_page": current_page,
         })
 
-    log_step(logs, f"Step 2: Detected {len(sections)} heading sections.")
+    return [section for section in sections if section["content"].strip()]
+
+
+def merge_small_chunks(chunks, min_chars=MIN_CHUNK_CHARS):
+    if not chunks:
+        return []
+
+    merged = []
+
+    for chunk in chunks:
+        if not merged:
+            merged.append(chunk)
+            continue
+
+        previous = merged[-1]
+        previous_text = previous["text"]
+        current_text = chunk["text"]
+
+        same_parent = (
+            previous["metadata"].get("parent_id") == chunk["metadata"].get("parent_id")
+        )
+
+        max_chars = previous["metadata"].get("max_chunk_chars", RECOMMENDED_MAX_CHARS)
+        combined_text = previous_text + "\n\n" + current_text
+
+        if len(previous_text) < min_chars and same_parent and len(combined_text) <= max_chars:
+            previous["text"] = combined_text
+            previous["char_count"] = len(combined_text)
+            previous["metadata"]["end_page"] = chunk["metadata"].get("end_page")
+            previous["metadata"]["merged_small_chunk"] = True
+        else:
+            merged.append(chunk)
+
+    for index, chunk in enumerate(merged, start=1):
+        chunk["chunk_id"] = index
+
+    return merged
+
+
+def chunk_text_by_strategy(text, strategy_name="Recommended"):
+    logs = []
+
+    if strategy_name not in CHUNKING_STRATEGIES:
+        strategy_name = "Recommended"
+
+    strategy = CHUNKING_STRATEGIES[strategy_name]
+
+    document_title = detect_document_title(text)
+    sections = extract_sections(text)
+
+    log_step(logs, f"Step 1: Selected chunking strategy: {strategy_name}")
+    log_step(logs, f"Step 2: Detected document title: {document_title}")
+    log_step(logs, f"Step 3: Detected {len(sections)} content sections.")
 
     chunks = []
+    parents = []
     chunk_id = 1
 
-    for section in sections:
+    for section_index, section in enumerate(sections, start=1):
         heading = section["heading"]
         content = section["content"]
 
-        if not content:
-            continue
+        parent_id = f"parent_{section_index}"
 
-        if len(content) <= MAX_CHUNK_CHARS:
+        parent_text = build_embedded_text(
+            document_title=document_title,
+            heading=heading,
+            content=content
+        )
+
+        parents.append({
+            "parent_id": parent_id,
+            "document_title": document_title,
+            "heading": heading,
+            "text": parent_text,
+            "char_count": len(parent_text),
+            "metadata": {
+                "document_title": document_title,
+                "heading": heading,
+                "section_index": section_index,
+                "start_page": section.get("start_page"),
+                "end_page": section.get("end_page"),
+                "chunk_type": "parent_section",
+            }
+        })
+
+        if strategy["use_recursive"]:
+            sub_chunks = split_text_recursive(
+                content,
+                max_chars=strategy["max_chars"],
+                overlap_chars=strategy["overlap_chars"]
+            )
+        else:
+            sub_chunks = split_text_simple(
+                content,
+                max_chars=strategy["max_chars"]
+            )
+
+        for sub_index, sub_chunk in enumerate(sub_chunks, start=1):
+            final_text = build_embedded_text(
+                document_title=document_title,
+                heading=heading,
+                content=sub_chunk
+            )
+
             chunks.append({
                 "chunk_id": chunk_id,
                 "heading": heading,
-                "text": content,
-                "char_count": len(content)
-            })
-            chunk_id += 1
-        else:
-            sub_chunks = split_long_text(content)
-
-            for sub_index, sub_chunk in enumerate(sub_chunks, start=1):
-                chunks.append({
-                    "chunk_id": chunk_id,
+                "text": final_text,
+                "char_count": len(final_text),
+                "metadata": {
+                    "document_title": document_title,
                     "heading": heading,
+                    "section_index": section_index,
                     "sub_chunk_id": sub_index,
-                    "text": sub_chunk,
-                    "char_count": len(sub_chunk)
-                })
-                chunk_id += 1
+                    "parent_id": parent_id,
+                    "parent_text": parent_text if strategy["use_parent_child"] else None,
+                    "start_page": section.get("start_page"),
+                    "end_page": section.get("end_page"),
+                    "chunk_type": "child_chunk",
+                    "chunking_strategy": strategy_name,
+                    "max_chunk_chars": strategy["max_chars"],
+                    "chunk_overlap_chars": strategy["overlap_chars"],
+                    "use_parent_child": strategy["use_parent_child"],
+                }
+            })
 
-    log_step(logs, f"Step 3: Created {len(chunks)} chunks.")
+            chunk_id += 1
 
+    chunks = merge_small_chunks(chunks)
+
+    log_step(logs, f"Step 4: Created {len(chunks)} searchable child chunks.")
+    log_step(logs, f"Step 5: Created {len(parents)} parent sections.")
+    log_step(logs, f"Step 6: Max chunk size: {strategy['max_chars']} characters.")
+    log_step(logs, f"Step 7: Overlap size: {strategy['overlap_chars']} characters.")
+
+    if strategy["use_parent_child"]:
+        log_step(logs, "Step 8: Parent-child context metadata is enabled.")
+    else:
+        log_step(logs, "Step 8: Parent-child context metadata is disabled.")
+
+    return chunks, logs, parents
+
+
+def heading_based_chunk_text(text):
+    chunks, logs, _ = chunk_text_by_strategy(text, strategy_name="Fast")
     return chunks, logs
 
 
@@ -153,20 +519,31 @@ def save_chunks(chunks, output_path=CHUNKS_OUTPUT_PATH):
     return output_path
 
 
-def run_chunking(input_path=PREPROCESSED_TEXT_PATH):
+def save_parent_sections(parents, output_path=CHUNKS_DIR / "parent_sections.json"):
+    CHUNKS_DIR.mkdir(parents=True, exist_ok=True)
+
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(parents, f, ensure_ascii=False, indent=4)
+
+    return output_path
+
+
+def run_chunking(input_path=PREPROCESSED_TEXT_PATH, strategy_name="Recommended"):
     text = load_preprocessed_text(input_path)
 
-    chunks, logs = heading_based_chunk_text(text)
+    chunks, logs, parents = chunk_text_by_strategy(text, strategy_name=strategy_name)
 
-    output_path = save_chunks(chunks)
+    chunks_output_path = save_chunks(chunks)
+    parents_output_path = save_parent_sections(parents)
 
-    logs.append(f"Step 4: Chunks saved to {output_path}")
+    logs.append(f"Step 9: Chunks saved to {chunks_output_path}")
+    logs.append(f"Step 10: Parent sections saved to {parents_output_path}")
 
-    return chunks, logs, output_path
+    return chunks, logs, chunks_output_path
 
 
 if __name__ == "__main__":
-    chunks, logs, output_path = run_chunking()
+    chunks, logs, output_path = run_chunking(strategy_name="Recommended")
 
     for log in logs:
         print(log)
