@@ -35,7 +35,7 @@ if __name__ == "__main__":
     collections = {'lotus': 10, 'lotus_car_stats': 0, 'lotus_brand_info': 0}
     rag_manager = RAGManager(config=config, collections=collections)
     log_gpu_usage('Documnets retrievers loaded.')
-    chat_service = ChatService(config=config, rag_manager=rag_manager)
+    chat_service = ChatService(config=config, rag_manager=rag_manager, rerank_topk=config.get('rerank_topk', 5))
     log_gpu_usage('Rerank model loaded.')
 
     questions_folder_path = "./test_questions/"

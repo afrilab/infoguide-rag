@@ -112,6 +112,8 @@ def evaluate_recall(file_path, answer_file, retriever, args):
                 "f1": f1,
                 "num_recalls": len(query_chunks),
                 "pos_recalls": list(recall_pos_chunks),
+                # Deduplicated list of retrieved chunk texts, used by step3 for answer generation
+                "retrieved_context": list(dict.fromkeys(query_chunks)),
             })
             
         except Exception as e:
@@ -193,14 +195,14 @@ def main():
         collection_name=collection_name,
         embedding_function=embeddings,
         persist_directory=persist_directory,
-        relevance_score_fn="l2"
+        relevance_score_fn="cosine"
     )
 
     ts_chroma = Chroma(
         collection_name=collection_name,
         embedding_function=embeddings,
         persist_directory=os.path.join(config['persist_directory'], "ts_chroma"),
-        relevance_score_fn="l2"
+        relevance_score_fn="cosine"
     )
 
     bm25_dir = os.path.join(config['persist_directory'], "bm25_index", collection_name)

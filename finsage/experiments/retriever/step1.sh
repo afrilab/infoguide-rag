@@ -9,7 +9,7 @@
 # See step1.py for input and output format
 
 EVAL_DIR="/root/autodl-tmp/RAG_Agent_vllm_cjj/eval"
-LOTUS_ENV_NAME="lotusenv"
+LOTUS_ENV_NAME="${ENV_NAME:-finsage}"
 
 activate_conda_env() {
     local env_name=$1

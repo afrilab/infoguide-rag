@@ -10,7 +10,7 @@
 # params: version_name input_file
 
 EVAL_DIR="/root/autodl-tmp/cjj/RAG_Agent/experiments/retriever"
-LOTUS_ENV_NAME="lotusenv"
+LOTUS_ENV_NAME="${ENV_NAME:-finsage}"
 
 activate_conda_env() {
     local env_name=$1
@@ -71,13 +71,13 @@ echo "=== Running step2 ==="
 
 ### Run with eval_all_retrieval.sh
 
-input_file=${1:-"input_file"}
+input_file=${1:?"Error: input_file (arg 1) is required"}
 output_base_dir="${2:-${EVAL_DIR}}"
-version_name=${3:-"result_expand_70"}
+version_name=${3:-"result_eval"}
 faiss_k=${4:-10}
-answer_file=${5:-"/root/autodl-tmp/cjj/RAG_Agent/experiments/retriever/answer/75_testingset_75updated_mul.json"}
+answer_file=${5:?"Error: answer_file (arg 5) is required"}
 
-# run_step2 "faiss" 10 0 0 false ${input_file} ${output_base_dir} true
+run_step2 "faiss" "${faiss_k}" 0 0 false "${input_file}" "${output_base_dir}" true
 
 
 ### Venn graph Experiment (single retriever) ###
@@ -145,12 +145,12 @@ answer_file=${5:-"/root/autodl-tmp/cjj/RAG_Agent/experiments/retriever/answer/75
 # run_step2 "faiss_hyde(qwen7b)" 25 0 0 false ${input_file} ${output_base_dir} true
 
 
-### Expand Experiments (compare expand and non-expand faiss) ###
-input_file="/root/autodl-tmp/cjj/RAG_Agent/experiments/retriever/result_hyde/eval_hyde_lora_75_75/checkpoint-800/result_1.json"
-run_step2 "faiss_noexpand" 70 0 0 false ${input_file} ${output_base_dir} false
+### Expand Experiments (commented out — hardcoded paths from another machine) ###
+# input_file="/root/autodl-tmp/cjj/RAG_Agent/experiments/retriever/result_hyde/eval_hyde_lora_75_75/checkpoint-800/result_1.json"
+# run_step2 "faiss_noexpand" 70 0 0 false ${input_file} ${output_base_dir} false
 
-input_file="/root/autodl-tmp/cjj/RAG_Agent/experiments/retriever/result_hyde/eval_hyde_lora_75_75/checkpoint-800/result_1.json"
-run_step2 "faiss_expand" 70 0 0 true ${input_file} ${output_base_dir} false
+# input_file="/root/autodl-tmp/cjj/RAG_Agent/experiments/retriever/result_hyde/eval_hyde_lora_75_75/checkpoint-800/result_1.json"
+# run_step2 "faiss_expand" 70 0 0 true ${input_file} ${output_base_dir} false
 
 
 echo "=== Evaluation Complete ==="
