@@ -15,10 +15,15 @@ mkdir -p logs
 
 module load conda/miniconda_20250420
 source "$(conda info --base)/etc/profile.d/conda.sh"
+
+# Create the env if it does not exist yet
+conda create -n finsage python=3.10 -y 2>/dev/null || true
+
 conda activate finsage
 
-export PYTHONNOUSERSITE=1
-export PIP_NO_USER=1
+# Confirm we are inside the conda env before touching pip
+echo "Python : $(which python)"
+echo "Pip    : $(which pip)"
 
 python -m pip install --upgrade pip
 
