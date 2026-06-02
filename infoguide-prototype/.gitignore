@@ -15,3 +15,4 @@ data/raw/
 # macOS
 .DS_Store
 */.DS_Store
+data/images/

@@ -1,4 +1,5 @@
 import re
+import zipfile
 from pathlib import Path
 
 from docx import Document
@@ -7,11 +8,19 @@ from pdf2image import convert_from_path
 import pytesseract
 from pypdf import PdfReader
 
+try:
+    import fitz
+except ImportError:
+    fitz = None
+
 RAW_DATA_DIR = Path("data/raw")
+IMAGES_DIR = Path("data/images")
 
 MIN_MEANINGFUL_ALNUM_CHARS = 20
 PDF_TEXT_X_TOLERANCE = 2
 PDF_TEXT_Y_TOLERANCE = 2
+
+DOCX_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tif", ".tiff", ".webp"}
 
 
 def save_uploaded_file(uploaded_file):
@@ -26,6 +35,185 @@ def save_uploaded_file(uploaded_file):
         f.write(uploaded_file.getbuffer())
 
     return file_path
+
+
+def sanitize_document_stem(stem):
+    sanitized = re.sub(r"[^\w\-.]+", "_", stem).strip("._")
+    return sanitized or "document"
+
+
+def get_document_image_dir(file_path):
+    file_path = Path(file_path)
+    document_stem = sanitize_document_stem(file_path.stem)
+    image_dir = IMAGES_DIR / document_stem
+    image_dir.mkdir(parents=True, exist_ok=True)
+    return image_dir
+
+
+def to_project_relative_path(path):
+    path = Path(path)
+    if not path.is_absolute():
+        return path.as_posix()
+
+    try:
+        return path.resolve().relative_to(Path.cwd().resolve()).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
+def save_image_bytes(image_bytes, output_path):
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "wb") as f:
+        f.write(image_bytes)
+    return output_path
+
+
+def format_image_marker(image_path, page_number=None, image_number=None, source=None):
+    relative_path = to_project_relative_path(image_path)
+
+    if source == "docx":
+        image_index = image_number if image_number is not None else 1
+        return f"[Image extracted: {relative_path} | source=docx | image={image_index}]"
+
+    page_index = page_number if page_number is not None else 0
+    image_index = image_number if image_number is not None else 1
+    return (
+        f"[Image extracted: {relative_path} | page={page_index} | image={image_index}]"
+    )
+
+
+def normalize_image_extension(ext):
+    if not ext:
+        return "png"
+
+    ext = ext.lower().lstrip(".")
+    if ext == "jpeg":
+        return "jpg"
+    if ext in {"png", "jpg", "gif", "bmp", "tif", "tiff", "webp"}:
+        return ext
+    return "png"
+
+
+def extract_images_from_pdf(file_path):
+    """
+    Extract embedded PDF images per page and return page-level markers.
+    """
+    file_path = Path(file_path)
+    image_dir = get_document_image_dir(file_path)
+    page_markers = {}
+    warnings = []
+
+    if fitz is None:
+        warnings.append(
+            "[Warning: PyMuPDF is not installed. PDF image extraction skipped. "
+            "Install PyMuPDF to enable embedded image extraction.]"
+        )
+        return page_markers, warnings
+
+    doc = None
+    try:
+        doc = fitz.open(file_path)
+
+        for page_index in range(len(doc)):
+            page_number = page_index + 1
+            page = doc[page_index]
+            seen_xrefs = set()
+            image_number = 0
+
+            try:
+                image_list = page.get_images(full=True)
+            except Exception as e:
+                warnings.append(
+                    f"[Warning: Image extraction failed on page {page_number}: {e}]"
+                )
+                continue
+
+            for image_info in image_list:
+                try:
+                    xref = image_info[0]
+                    if xref in seen_xrefs:
+                        continue
+                    seen_xrefs.add(xref)
+
+                    base_image = doc.extract_image(xref)
+                    image_bytes = base_image.get("image")
+                    if not image_bytes:
+                        continue
+
+                    ext = normalize_image_extension(base_image.get("ext"))
+                    image_number += 1
+                    filename = f"page_{page_number:03d}_image_{image_number:03d}.{ext}"
+                    output_path = image_dir / filename
+                    save_image_bytes(image_bytes, output_path)
+
+                    marker = format_image_marker(
+                        output_path,
+                        page_number=page_number,
+                        image_number=image_number,
+                    )
+                    page_markers.setdefault(page_number, []).append(marker)
+                except Exception as e:
+                    warnings.append(
+                        f"[Warning: Image extraction failed on page {page_number}: {e}]"
+                    )
+    except Exception as e:
+        warnings.append(f"[Warning: PDF image extraction failed: {e}]")
+    finally:
+        if doc is not None:
+            doc.close()
+
+    return page_markers, warnings
+
+
+def extract_images_from_docx(file_path):
+    """
+    Extract embedded DOCX images from the document package.
+    """
+    file_path = Path(file_path)
+    image_dir = get_document_image_dir(file_path)
+    markers = []
+    warnings = []
+
+    try:
+        with zipfile.ZipFile(file_path, "r") as docx_zip:
+            media_files = sorted(
+                name
+                for name in docx_zip.namelist()
+                if name.startswith("word/media/") and not name.endswith("/")
+            )
+
+            for image_number, media_path in enumerate(media_files, start=1):
+                try:
+                    image_bytes = docx_zip.read(media_path)
+                    if not image_bytes:
+                        continue
+
+                    media_ext = Path(media_path).suffix.lower()
+                    if media_ext in DOCX_IMAGE_EXTENSIONS:
+                        ext = normalize_image_extension(media_ext.lstrip("."))
+                    else:
+                        ext = "png"
+
+                    filename = f"docx_image_{image_number:03d}.{ext}"
+                    output_path = image_dir / filename
+                    save_image_bytes(image_bytes, output_path)
+
+                    markers.append(
+                        format_image_marker(
+                            output_path,
+                            image_number=image_number,
+                            source="docx",
+                        )
+                    )
+                except Exception as e:
+                    warnings.append(
+                        f"[Warning: DOCX image extraction failed for {media_path}: {e}]"
+                    )
+    except Exception as e:
+        warnings.append(f"[Warning: DOCX image extraction failed: {e}]")
+
+    return markers, warnings
 
 
 def clean_text(text):
@@ -231,9 +419,13 @@ def run_ocr_for_page(file_path, page_number):
 def extract_text_from_pdf(file_path):
     """
     PDF dosyasından metin çıkarır.
-    Sayfa bazlı selectable text + tablo extraction + OCR fallback.
+    Sayfa bazlı selectable text + tablo extraction + OCR fallback + image markers.
     """
+    file_path = Path(file_path)
     output_parts = []
+
+    page_image_markers, image_warnings = extract_images_from_pdf(file_path)
+    output_parts.extend(image_warnings)
 
     reader = PdfReader(file_path)
 
@@ -287,6 +479,8 @@ def extract_text_from_pdf(file_path):
                     output_parts.extend(
                         extract_pdf_page_tables(pdfplumber_page, page_number)
                     )
+
+                output_parts.extend(page_image_markers.get(page_number, []))
             except Exception as e:
                 output_parts.append(
                     f"[Warning: Text extraction failed on page {page_number}: {e}]"
@@ -328,6 +522,7 @@ def extract_text_from_docx(file_path):
     """
     DOCX dosyasından paragraph, table, header ve footer metinlerini çıkarır.
     """
+    file_path = Path(file_path)
     doc = Document(file_path)
     text_parts = []
 
@@ -380,6 +575,13 @@ def extract_text_from_docx(file_path):
                 table,
             )
 
+    docx_image_markers, image_warnings = extract_images_from_docx(file_path)
+    text_parts.extend(image_warnings)
+
+    if docx_image_markers:
+        text_parts.append("--- Extracted Images ---")
+        text_parts.extend(docx_image_markers)
+
     return "\n\n".join(part for part in text_parts if part and part.strip())
 
 
@@ -387,6 +589,7 @@ def extract_text(file_path):
     """
     Dosya uzantısına göre uygun text extraction fonksiyonunu çağırır.
     """
+    file_path = Path(file_path)
     extension = file_path.suffix.lower()
 
     if extension == ".pdf":
