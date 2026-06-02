@@ -10,37 +10,8 @@ CHUNKS_OUTPUT_PATH = CHUNKS_DIR / "chunks.json"
 
 MIN_CHUNK_CHARS = 300
 
-FAST_MAX_CHARS = 2200
-RECOMMENDED_MAX_CHARS = 1800
-HIGH_ACCURACY_MAX_CHARS = 1400
-
-RECOMMENDED_OVERLAP_CHARS = 250
-HIGH_ACCURACY_OVERLAP_CHARS = 300
-
-
-CHUNKING_STRATEGIES = {
-    "Fast": {
-        "description": "Simple heading-aware chunking. Faster, less detailed.",
-        "max_chars": FAST_MAX_CHARS,
-        "overlap_chars": 0,
-        "use_recursive": False,
-        "use_parent_child": False,
-    },
-    "Recommended": {
-        "description": "Heading-aware recursive chunking with overlap and metadata.",
-        "max_chars": RECOMMENDED_MAX_CHARS,
-        "overlap_chars": RECOMMENDED_OVERLAP_CHARS,
-        "use_recursive": True,
-        "use_parent_child": False,
-    },
-    "High Accuracy": {
-        "description": "Recommended mode plus parent-section metadata for context expansion.",
-        "max_chars": HIGH_ACCURACY_MAX_CHARS,
-        "overlap_chars": HIGH_ACCURACY_OVERLAP_CHARS,
-        "use_recursive": True,
-        "use_parent_child": True,
-    },
-}
+DEFAULT_MAX_CHARS = 1800
+DEFAULT_OVERLAP_CHARS = 250
 
 
 def log_step(logs, message):
@@ -379,14 +350,14 @@ def merge_small_chunks(chunks, min_chars=MIN_CHUNK_CHARS):
         previous_text = previous["text"]
         current_text = chunk["text"]
 
-        same_parent = (
-            previous["metadata"].get("parent_id") == chunk["metadata"].get("parent_id")
+        same_section = (
+            previous["metadata"].get("section_index") == chunk["metadata"].get("section_index")
         )
 
-        max_chars = previous["metadata"].get("max_chunk_chars", RECOMMENDED_MAX_CHARS)
+        max_chars = previous["metadata"].get("max_chunk_chars", DEFAULT_MAX_CHARS)
         combined_text = previous_text + "\n\n" + current_text
 
-        if len(previous_text) < min_chars and same_parent and len(combined_text) <= max_chars:
+        if len(previous_text) < min_chars and same_section and len(combined_text) <= max_chars:
             previous["text"] = combined_text
             previous["char_count"] = len(combined_text)
             previous["metadata"]["end_page"] = chunk["metadata"].get("end_page")
@@ -400,64 +371,28 @@ def merge_small_chunks(chunks, min_chars=MIN_CHUNK_CHARS):
     return merged
 
 
-def chunk_text_by_strategy(text, strategy_name="Recommended"):
+def chunk_text(text):
     logs = []
-
-    if strategy_name not in CHUNKING_STRATEGIES:
-        strategy_name = "Recommended"
-
-    strategy = CHUNKING_STRATEGIES[strategy_name]
 
     document_title = detect_document_title(text)
     sections = extract_sections(text)
 
-    log_step(logs, f"Step 1: Selected chunking strategy: {strategy_name}")
+    log_step(logs, "Step 1: Using Recommended Chunking configuration.")
     log_step(logs, f"Step 2: Detected document title: {document_title}")
     log_step(logs, f"Step 3: Detected {len(sections)} content sections.")
 
     chunks = []
-    parents = []
     chunk_id = 1
 
     for section_index, section in enumerate(sections, start=1):
         heading = section["heading"]
         content = section["content"]
 
-        parent_id = f"parent_{section_index}"
-
-        parent_text = build_embedded_text(
-            document_title=document_title,
-            heading=heading,
-            content=content
+        sub_chunks = split_text_recursive(
+            content,
+            max_chars=DEFAULT_MAX_CHARS,
+            overlap_chars=DEFAULT_OVERLAP_CHARS
         )
-
-        parents.append({
-            "parent_id": parent_id,
-            "document_title": document_title,
-            "heading": heading,
-            "text": parent_text,
-            "char_count": len(parent_text),
-            "metadata": {
-                "document_title": document_title,
-                "heading": heading,
-                "section_index": section_index,
-                "start_page": section.get("start_page"),
-                "end_page": section.get("end_page"),
-                "chunk_type": "parent_section",
-            }
-        })
-
-        if strategy["use_recursive"]:
-            sub_chunks = split_text_recursive(
-                content,
-                max_chars=strategy["max_chars"],
-                overlap_chars=strategy["overlap_chars"]
-            )
-        else:
-            sub_chunks = split_text_simple(
-                content,
-                max_chars=strategy["max_chars"]
-            )
 
         for sub_index, sub_chunk in enumerate(sub_chunks, start=1):
             final_text = build_embedded_text(
@@ -476,15 +411,13 @@ def chunk_text_by_strategy(text, strategy_name="Recommended"):
                     "heading": heading,
                     "section_index": section_index,
                     "sub_chunk_id": sub_index,
-                    "parent_id": parent_id,
-                    "parent_text": parent_text if strategy["use_parent_child"] else None,
                     "start_page": section.get("start_page"),
                     "end_page": section.get("end_page"),
-                    "chunk_type": "child_chunk",
-                    "chunking_strategy": strategy_name,
-                    "max_chunk_chars": strategy["max_chars"],
-                    "chunk_overlap_chars": strategy["overlap_chars"],
-                    "use_parent_child": strategy["use_parent_child"],
+                    "chunk_type": "chunk",
+                    "chunking_strategy": "Recommended",
+                    "max_chunk_chars": DEFAULT_MAX_CHARS,
+                    "chunk_overlap_chars": DEFAULT_OVERLAP_CHARS,
+                    "use_recursive": True,
                 }
             })
 
@@ -493,21 +426,15 @@ def chunk_text_by_strategy(text, strategy_name="Recommended"):
     chunks = merge_small_chunks(chunks)
 
     log_step(logs, f"Step 4: Created {len(chunks)} searchable child chunks.")
-    log_step(logs, f"Step 5: Created {len(parents)} parent sections.")
-    log_step(logs, f"Step 6: Max chunk size: {strategy['max_chars']} characters.")
-    log_step(logs, f"Step 7: Overlap size: {strategy['overlap_chars']} characters.")
+    log_step(logs, f"Step 5: Max chunk size: {DEFAULT_MAX_CHARS} characters.")
+    log_step(logs, f"Step 6: Overlap size: {DEFAULT_OVERLAP_CHARS} characters.")
+    log_step(logs, "Step 7: Recursive splitting is enabled.")
 
-    if strategy["use_parent_child"]:
-        log_step(logs, "Step 8: Parent-child context metadata is enabled.")
-    else:
-        log_step(logs, "Step 8: Parent-child context metadata is disabled.")
-
-    return chunks, logs, parents
+    return chunks, logs
 
 
 def heading_based_chunk_text(text):
-    chunks, logs, _ = chunk_text_by_strategy(text, strategy_name="Fast")
-    return chunks, logs
+    return chunk_text(text)
 
 
 def save_chunks(chunks, output_path=CHUNKS_OUTPUT_PATH):
@@ -519,31 +446,20 @@ def save_chunks(chunks, output_path=CHUNKS_OUTPUT_PATH):
     return output_path
 
 
-def save_parent_sections(parents, output_path=CHUNKS_DIR / "parent_sections.json"):
-    CHUNKS_DIR.mkdir(parents=True, exist_ok=True)
-
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(parents, f, ensure_ascii=False, indent=4)
-
-    return output_path
-
-
-def run_chunking(input_path=PREPROCESSED_TEXT_PATH, strategy_name="Recommended"):
+def run_chunking(input_path=PREPROCESSED_TEXT_PATH):
     text = load_preprocessed_text(input_path)
 
-    chunks, logs, parents = chunk_text_by_strategy(text, strategy_name=strategy_name)
+    chunks, logs = chunk_text(text)
 
     chunks_output_path = save_chunks(chunks)
-    parents_output_path = save_parent_sections(parents)
 
-    logs.append(f"Step 9: Chunks saved to {chunks_output_path}")
-    logs.append(f"Step 10: Parent sections saved to {parents_output_path}")
+    logs.append(f"Step 8: Chunks saved to {chunks_output_path}")
 
     return chunks, logs, chunks_output_path
 
 
 if __name__ == "__main__":
-    chunks, logs, output_path = run_chunking(strategy_name="Recommended")
+    chunks, logs, output_path = run_chunking()
 
     for log in logs:
         print(log)

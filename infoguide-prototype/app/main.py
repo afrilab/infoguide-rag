@@ -2,10 +2,8 @@ import streamlit as st
 from ingestion import save_uploaded_file, extract_text
 from preprocessing import preprocess_text
 from chunking import (
-    CHUNKING_STRATEGIES,
-    chunk_text_by_strategy,
-    save_chunks,
-    save_parent_sections
+    chunk_text,
+    save_chunks
 )
 from embeddings import (
     MODEL_NAME as BGE_MODEL_NAME,
@@ -259,51 +257,20 @@ def show_chunking_page():
     )
 
     st.markdown(
-        '<div class="subtitle">Step 3: Create document chunks using strategy-based chunking.</div>',
+        '<div class="subtitle">Step 3: Create document chunks with Recommended Chunking.</div>',
         unsafe_allow_html=True
     )
 
     st.success("Preprocessed text is ready.")
 
-    st.subheader("Choose Chunking Strategy")
-
-    chunking_strategy = st.radio(
-        "Select chunking strategy",
-        ["Recommended", "High Accuracy", "Fast"],
-        index=0
+    st.subheader("Recommended Chunking")
+    st.info(
+        "Uses heading-aware recursive chunking with overlap and metadata."
     )
-
-    st.session_state["chunking_strategy"] = chunking_strategy
-
-    strategy_info = CHUNKING_STRATEGIES.get(chunking_strategy, {})
-
-    if chunking_strategy == "Recommended":
-        st.info(
-            "Recommended: heading-aware recursive chunking with overlap and metadata. "
-            "Best default option for company documents, policies, reports, and internal guidelines."
-        )
-
-    elif chunking_strategy == "High Accuracy":
-        st.info(
-            "High Accuracy: uses smaller searchable chunks and stores parent-section context. "
-            "Best for detailed company document Q&A where answer grounding is important."
-        )
-
-    elif chunking_strategy == "Fast":
-        st.info(
-            "Fast: simple heading-aware chunking. Faster, but less accurate for detailed questions."
-        )
-
-    with st.expander("Technical details"):
-        st.write(f"Description: {strategy_info.get('description', '-')}")
-        st.write(f"Max chunk size: {strategy_info.get('max_chars', '-')}")
-        st.write(f"Overlap size: {strategy_info.get('overlap_chars', '-')}")
-        st.write(f"Recursive splitting: {strategy_info.get('use_recursive', '-')}")
-        st.write(f"Parent-child context: {strategy_info.get('use_parent_child', '-')}")
 
     st.markdown("---")
 
-    if st.button(f"Start {chunking_strategy} Chunking"):
+    if st.button("Start Chunking"):
         try:
             preprocessed_text = st.session_state.get("preprocessed_text", "")
 
@@ -311,21 +278,14 @@ def show_chunking_page():
                 st.warning("No preprocessed text found. Please complete preprocessing first.")
                 return
 
-            with st.spinner(f"{chunking_strategy} chunking is running..."):
-                chunks, logs, parents = chunk_text_by_strategy(
-                    preprocessed_text,
-                    strategy_name=chunking_strategy
-                )
-
+            with st.spinner("Chunking is running..."):
+                chunks, logs = chunk_text(preprocessed_text)
                 chunks_output_path = save_chunks(chunks)
-                parents_output_path = save_parent_sections(parents)
 
             st.session_state["chunks"] = chunks
-            st.session_state["parent_sections"] = parents
             st.session_state["chunking_logs"] = logs
             st.session_state["chunking_done"] = True
             st.session_state["chunks_output_path"] = str(chunks_output_path)
-            st.session_state["parents_output_path"] = str(parents_output_path)
 
             for log in logs:
                 st.info(log)
@@ -339,11 +299,7 @@ def show_chunking_page():
         st.markdown("---")
         st.success("Step 3 completed: Chunking is finished.")
 
-        st.info(f"Selected strategy: {st.session_state.get('chunking_strategy')}")
         st.info(f"Chunks saved to: {st.session_state['chunks_output_path']}")
-
-        if st.session_state.get("parents_output_path"):
-            st.info(f"Parent sections saved to: {st.session_state['parents_output_path']}")
 
         chunks = st.session_state.get("chunks", [])
 
@@ -366,9 +322,6 @@ def show_chunking_page():
 
             with col3:
                 st.caption(f"Characters: {chunk.get('char_count', '-')}")
-
-            if metadata.get("use_parent_child"):
-                st.caption(f"Parent ID: {metadata.get('parent_id', '-')}")
 
             st.text_area(
                 f"Chunk {chunk['chunk_id']}",
