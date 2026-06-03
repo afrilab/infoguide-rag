@@ -8,6 +8,7 @@ import {
   MOCK_RETRIEVAL,
   MOCK_RERANKING,
   MOCK_GENERATION,
+  MOCK_CHAT_RESPONSE,
 } from './data'
 
 const delay = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -55,4 +56,14 @@ export const rerankChunks = async (_params) => {
 export const generateAnswer = async (_params) => {
   await delay(2200)
   return { ...MOCK_GENERATION }
+}
+
+export const processDocument = async (_file) => {
+  await delay(2800)
+  return { pageCount: 42, chunkCount: 11 }
+}
+
+export const chatQuery = async (_params) => {
+  await delay(2400)
+  return { ...MOCK_CHAT_RESPONSE }
 }

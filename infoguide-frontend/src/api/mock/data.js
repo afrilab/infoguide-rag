@@ -273,3 +273,43 @@ Overall, total revenue reached $2.8 billion, a 15.3% increase year-over-year. Se
   inputTokens: 2840,
   outputTokens: 213,
 }
+
+export const MOCK_CHAT_RESPONSE = {
+  answer: `Based on the Q3 2024 Financial Report, the main drivers of revenue growth were:
+
+**1. Asia-Pacific Market Expansion**
+The Asia-Pacific segment was the fastest-growing region at +34.1% year-over-year, contributing $420 million in total revenue. Geographic expansion was explicitly cited as one of the three primary growth drivers.
+
+**2. Enterprise Suite Product Launch**
+The introduction of the Enterprise Suite product line drove product revenue growth of 18.2%, bringing total product revenue to $1.92 billion — 68.6% of total revenue.
+
+**3. Improved Customer Retention**
+Customer retention rates improved to 94.2%, increasing recurring revenue from the existing base and reducing churn.
+
+Overall, total revenue reached $2.8 billion, a 15.3% increase year-over-year, marking the seventh consecutive quarter of double-digit revenue growth.`,
+  sources: [
+    {
+      chunkId: 'chunk_1',
+      heading: 'Revenue Analysis',
+      text: 'Product revenue accounted for $1.92 billion (68.6% of total revenue), growing 18.2% compared to Q3 2023. The growth was primarily driven by three factors: expansion into Asia-Pacific markets, introduction of the Enterprise Suite product line, and improved customer retention rates reaching 94.2%.',
+    },
+    {
+      chunkId: 'chunk_0',
+      heading: 'Executive Summary',
+      text: 'ACME Corporation delivered strong financial performance in the third quarter of 2024, with total revenue reaching $2.8 billion, representing a 15.3% increase year-over-year.',
+    },
+    {
+      chunkId: 'chunk_2',
+      heading: 'Revenue Analysis — Regional Breakdown',
+      text: 'The Asia-Pacific segment showed the most significant acceleration, growing 34.1% year-over-year and contributing $420 million in total revenue.',
+    },
+  ],
+  pipelineDetails: {
+    method: 'hybrid',
+    retrieved: 5,
+    reranked: 3,
+    model: 'gpt-4o-mini',
+    inputTokens: 2840,
+    outputTokens: 213,
+  },
+}

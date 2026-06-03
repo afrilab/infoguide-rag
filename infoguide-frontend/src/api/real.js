@@ -50,3 +50,12 @@ export const rerankChunks = async ({ query, chunks, topK }) =>
 
 export const generateAnswer = async ({ query, chunks }) =>
   post('/generate', { query, chunks })
+
+export const processDocument = async (file) => {
+  const form = new FormData()
+  form.append('file', file)
+  return postForm('/chat/process', form)
+}
+
+export const chatQuery = async ({ query, documentIds }) =>
+  post('/chat/query', { query, document_ids: documentIds })
