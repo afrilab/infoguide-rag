@@ -84,55 +84,57 @@ export default function Header() {
 
   return (
     <header className="sticky top-0 z-10 bg-white border-b border-slate-200">
-      <div className="max-w-4xl mx-auto px-4">
-        {/* Branding row */}
-        <div className="flex items-center justify-between h-12 border-b border-slate-100">
-          <div className="flex items-center gap-2.5">
-            <div className="w-6 h-6 rounded-md bg-blue-700 flex items-center justify-center">
-              <svg className="w-3.5 h-3.5 text-white" viewBox="0 0 16 16" fill="none">
-                <circle cx="6" cy="4" r="2" stroke="currentColor" strokeWidth="1.5" />
-                <circle cx="10" cy="12" r="2" stroke="currentColor" strokeWidth="1.5" />
-                <path d="M6 6v2l4 2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-              </svg>
-            </div>
-            <span className="text-sm font-semibold text-slate-900">InfoGuide</span>
-            <span className="hidden sm:inline text-xs text-slate-400">RAG Pipeline</span>
+      {/* Branding row — full width, logo anchored left */}
+      <div className="px-5 flex items-center h-13 gap-3 h-12">
+        <div className="flex items-center gap-2.5 shrink-0">
+          <div className="w-7 h-7 rounded-lg bg-blue-700 flex items-center justify-center">
+            <svg className="w-3.5 h-3.5 text-white" viewBox="0 0 16 16" fill="none">
+              <circle cx="6" cy="4" r="2" stroke="currentColor" strokeWidth="1.5" />
+              <circle cx="10" cy="12" r="2" stroke="currentColor" strokeWidth="1.5" />
+              <path d="M6 6v2l4 2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
           </div>
-
-          <ModeToggle />
-
-          {mode === 'pipeline' && (
-            <span className="text-xs text-slate-400 font-medium">
-              Step {currentStepIndex + 1} of {STEP_IDS.length}
-            </span>
-          )}
-          {mode === 'chat' && <div className="w-20" />}
+          <span className="text-sm font-semibold text-slate-900 tracking-tight">InfoGuide</span>
+          <div className="hidden sm:block w-px h-3.5 bg-slate-200" />
+          <span className="hidden sm:inline text-xs text-slate-400 font-medium">RAG Pipeline</span>
         </div>
 
-        {/* Step progress row — pipeline only */}
+        <div className="flex-1" />
+
         {mode === 'pipeline' && (
-          <div className="flex items-center gap-1 py-2">
-            {STEP_IDS.map((id, i) => {
-              const isPhaseBreak = i === 5
-              return (
-                <div key={id} className="flex items-center gap-1 flex-1 min-w-0">
-                  {isPhaseBreak && <div className="w-px h-6 bg-slate-200 mx-1 shrink-0 self-start mt-1" />}
-                  <StepDot
-                    id={id}
-                    index={i}
-                    isCurrent={i === currentStepIndex}
-                    status={steps[id].status}
-                    onClick={() => navigateTo(i)}
-                  />
-                  {i < STEP_IDS.length - 1 && i !== 4 && (
-                    <PhaseConnector done={steps[id].status === 'done' || steps[id].status === 'skipped'} />
-                  )}
-                </div>
-              )
-            })}
-          </div>
+          <span className="text-xs text-slate-400 font-medium tabular-nums">
+            Step {currentStepIndex + 1}/{STEP_IDS.length}
+          </span>
         )}
+
+        <ModeToggle />
       </div>
+
+      {/* Step progress row — pipeline only */}
+      {mode === 'pipeline' && (
+        <div className="border-t border-slate-100 py-2.5">
+        <div className="max-w-4xl mx-auto px-5 flex items-center gap-1">
+          {STEP_IDS.map((id, i) => {
+            const isPhaseBreak = i === 5
+            return (
+              <div key={id} className="flex items-center gap-1 flex-1 min-w-0">
+                {isPhaseBreak && <div className="w-px h-6 bg-slate-200 mx-1 shrink-0 self-start mt-1" />}
+                <StepDot
+                  id={id}
+                  index={i}
+                  isCurrent={i === currentStepIndex}
+                  status={steps[id].status}
+                  onClick={() => navigateTo(i)}
+                />
+                {i < STEP_IDS.length - 1 && i !== 4 && (
+                  <PhaseConnector done={steps[id].status === 'done' || steps[id].status === 'skipped'} />
+                )}
+              </div>
+            )
+          })}
+        </div>
+        </div>
+      )}
     </header>
   )
 }

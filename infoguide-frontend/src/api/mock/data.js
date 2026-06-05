@@ -292,16 +292,22 @@ Overall, total revenue reached $2.8 billion, a 15.3% increase year-over-year, ma
       chunkId: 'chunk_1',
       heading: 'Revenue Analysis',
       text: 'Product revenue accounted for $1.92 billion (68.6% of total revenue), growing 18.2% compared to Q3 2023. The growth was primarily driven by three factors: expansion into Asia-Pacific markets, introduction of the Enterprise Suite product line, and improved customer retention rates reaching 94.2%.',
+      documentId: 'doc_mock_1',
+      pageNumber: 3,
     },
     {
       chunkId: 'chunk_0',
       heading: 'Executive Summary',
       text: 'ACME Corporation delivered strong financial performance in the third quarter of 2024, with total revenue reaching $2.8 billion, representing a 15.3% increase year-over-year.',
+      documentId: 'doc_mock_1',
+      pageNumber: 1,
     },
     {
       chunkId: 'chunk_2',
       heading: 'Revenue Analysis — Regional Breakdown',
       text: 'The Asia-Pacific segment showed the most significant acceleration, growing 34.1% year-over-year and contributing $420 million in total revenue.',
+      documentId: 'doc_mock_1',
+      pageNumber: 4,
     },
   ],
   pipelineDetails: {

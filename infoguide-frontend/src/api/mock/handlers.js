@@ -60,7 +60,7 @@ export const generateAnswer = async (_params) => {
 
 export const processDocument = async (_file) => {
   await delay(2800)
-  return { pageCount: 42, chunkCount: 11 }
+  return { pageCount: 42, chunkCount: 11, documentId: 'doc_mock_1' }
 }
 
 export const chatQuery = async (_params) => {

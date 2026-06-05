@@ -51,11 +51,15 @@ export const rerankChunks = async ({ query, chunks, topK }) =>
 export const generateAnswer = async ({ query, chunks }) =>
   post('/generate', { query, chunks })
 
+// Backend must return: { pageCount, chunkCount, documentId }
+// documentId is the backend's stable ID for this document — returned in chatQuery source objects.
 export const processDocument = async (file) => {
   const form = new FormData()
   form.append('file', file)
   return postForm('/chat/process', form)
 }
 
+// Backend must return sources as: { chunkId, heading, text, documentId, pageNumber }
+// documentId must match the id returned by /chat/process; pageNumber is 1-indexed.
 export const chatQuery = async ({ query, documentIds }) =>
   post('/chat/query', { query, document_ids: documentIds })
