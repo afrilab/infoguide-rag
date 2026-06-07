@@ -1,5 +1,6 @@
 import re
 import zipfile
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from docx import Document
@@ -20,7 +21,12 @@ MIN_MEANINGFUL_ALNUM_CHARS = 20
 PDF_TEXT_X_TOLERANCE = 2
 PDF_TEXT_Y_TOLERANCE = 2
 
-DOCX_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tif", ".tiff", ".webp"}
+RELS_IMAGE_TYPE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"
+
+_BLIP_TAG = "{http://schemas.openxmlformats.org/drawingml/2006/main}blip"
+_R_EMBED = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed"
+_IMAGEDATA_TAG = "{urn:schemas-microsoft-com:vml}imagedata"
+_R_ID = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id"
 
 
 def save_uploaded_file(uploaded_file):
@@ -166,54 +172,72 @@ def extract_images_from_pdf(file_path):
     return page_markers, warnings
 
 
-def extract_images_from_docx(file_path):
+def _extract_docx_images_with_rid_map(file_path, image_dir):
     """
-    Extract embedded DOCX images from the document package.
+    Extract all DOCX images from the ZIP package and build per-part rId → path maps.
+    Returns (rid_maps: dict[str, dict[str, Path]], warnings: list[str]).
+    rid_maps keys are part paths like 'word/document.xml'.
     """
     file_path = Path(file_path)
-    image_dir = get_document_image_dir(file_path)
-    markers = []
+    image_counter = 0
+    media_to_path = {}
+    rid_maps = {}
     warnings = []
 
     try:
-        with zipfile.ZipFile(file_path, "r") as docx_zip:
-            media_files = sorted(
-                name
-                for name in docx_zip.namelist()
-                if name.startswith("word/media/") and not name.endswith("/")
-            )
+        with zipfile.ZipFile(file_path, "r") as z:
+            for name in sorted(z.namelist()):
+                if name.startswith("word/media/") and not name.endswith("/"):
+                    try:
+                        image_bytes = z.read(name)
+                        if not image_bytes:
+                            continue
+                        ext = normalize_image_extension(Path(name).suffix.lstrip("."))
+                        image_counter += 1
+                        filename = f"docx_image_{image_counter:03d}.{ext}"
+                        output_path = image_dir / filename
+                        save_image_bytes(image_bytes, output_path)
+                        media_to_path[name[len("word/"):]] = output_path
+                    except Exception as e:
+                        warnings.append(f"[Warning: DOCX image save failed for {name}: {e}]")
 
-            for image_number, media_path in enumerate(media_files, start=1):
+            for name in z.namelist():
+                if not (name.startswith("word/_rels/") and name.endswith(".rels")):
+                    continue
+                part_name = name.replace("word/_rels/", "word/")
+                if part_name.endswith(".rels"):
+                    part_name = part_name[:-5]
                 try:
-                    image_bytes = docx_zip.read(media_path)
-                    if not image_bytes:
-                        continue
-
-                    media_ext = Path(media_path).suffix.lower()
-                    if media_ext in DOCX_IMAGE_EXTENSIONS:
-                        ext = normalize_image_extension(media_ext.lstrip("."))
-                    else:
-                        ext = "png"
-
-                    filename = f"docx_image_{image_number:03d}.{ext}"
-                    output_path = image_dir / filename
-                    save_image_bytes(image_bytes, output_path)
-
-                    markers.append(
-                        format_image_marker(
-                            output_path,
-                            image_number=image_number,
-                            source="docx",
-                        )
-                    )
+                    root = ET.fromstring(z.read(name))
+                    rid_map = {}
+                    for rel in root:
+                        if RELS_IMAGE_TYPE not in rel.get("Type", ""):
+                            continue
+                        rid = rel.get("Id")
+                        target = rel.get("Target", "").lstrip("../")
+                        if rid and target in media_to_path:
+                            rid_map[rid] = media_to_path[target]
+                    if rid_map:
+                        rid_maps[part_name] = rid_map
                 except Exception as e:
-                    warnings.append(
-                        f"[Warning: DOCX image extraction failed for {media_path}: {e}]"
-                    )
+                    warnings.append(f"[Warning: DOCX rels parse failed for {name}: {e}]")
     except Exception as e:
         warnings.append(f"[Warning: DOCX image extraction failed: {e}]")
 
-    return markers, warnings
+    return rid_maps, warnings
+
+
+def _get_paragraph_image_rids(paragraph):
+    rids = []
+    for blip in paragraph._p.iter(_BLIP_TAG):
+        rid = blip.get(_R_EMBED)
+        if rid:
+            rids.append(rid)
+    for imgdata in paragraph._p.iter(_IMAGEDATA_TAG):
+        rid = imgdata.get(_R_ID)
+        if rid:
+            rids.append(rid)
+    return rids
 
 
 def clean_text(text):
@@ -324,16 +348,32 @@ def format_markdown_table(table):
     return "\n".join(lines)
 
 
-def extract_pdf_page_text(pdfplumber_page, pypdf_page, page_number):
+def extract_pdf_page_text(pdfplumber_page, pypdf_page, page_number, table_bboxes=None):
     page_text = ""
 
     if pdfplumber_page is not None:
         try:
-            page_text = pdfplumber_page.extract_text(
-                layout=True,
-                x_tolerance=PDF_TEXT_X_TOLERANCE,
-                y_tolerance=PDF_TEXT_Y_TOLERANCE,
-            )
+            if table_bboxes:
+                def _outside_tables(obj):
+                    if obj.get("object_type") != "char":
+                        return True
+                    cx0, cy0, cx1, cy1 = obj["x0"], obj["top"], obj["x1"], obj["bottom"]
+                    for bx0, by0, bx1, by1 in table_bboxes:
+                        if cx0 >= bx0 - 1 and cy0 >= by0 - 1 and cx1 <= bx1 + 1 and cy1 <= by1 + 1:
+                            return False
+                    return True
+                filtered = pdfplumber_page.filter(_outside_tables)
+                page_text = filtered.extract_text(
+                    layout=True,
+                    x_tolerance=PDF_TEXT_X_TOLERANCE,
+                    y_tolerance=PDF_TEXT_Y_TOLERANCE,
+                ) or ""
+            else:
+                page_text = pdfplumber_page.extract_text(
+                    layout=True,
+                    x_tolerance=PDF_TEXT_X_TOLERANCE,
+                    y_tolerance=PDF_TEXT_Y_TOLERANCE,
+                ) or ""
         except Exception:
             page_text = ""
 
@@ -352,46 +392,33 @@ def extract_pdf_page_text(pdfplumber_page, pypdf_page, page_number):
     return "", "none"
 
 
-def get_pdf_tables_from_page(pdfplumber_page):
-    tables = []
-
+def _find_pdf_page_tables(pdfplumber_page):
     try:
-        tables = pdfplumber_page.extract_tables() or []
-    except Exception:
-        tables = []
-
-    if tables:
-        return tables
-
-    try:
-        found_tables = pdfplumber_page.find_tables()
-        for table in found_tables:
-            try:
-                extracted = table.extract()
-                if extracted:
-                    tables.append(extracted)
-            except Exception:
-                continue
+        return pdfplumber_page.find_tables() or []
     except Exception:
         return []
 
-    return tables
+
+def _get_table_bboxes(tables):
+    bboxes = []
+    for table in tables:
+        try:
+            bboxes.append(table.bbox)
+        except Exception:
+            pass
+    return bboxes
 
 
-def extract_pdf_page_tables(pdfplumber_page, page_number):
+def extract_pdf_page_tables_from_objects(tables, page_number):
     rendered_tables = []
-
-    try:
-        tables = get_pdf_tables_from_page(pdfplumber_page)
-    except Exception as e:
-        return [f"[Warning: Table extraction failed on page {page_number}: {e}]"]
-
     for table_index, table in enumerate(tables, start=1):
         try:
-            markdown_table = format_markdown_table(table)
+            extracted = table.extract()
+            if not extracted:
+                continue
+            markdown_table = format_markdown_table(extracted)
             if not markdown_table.strip():
                 continue
-
             rendered_tables.append(
                 f"--- Page {page_number} Table {table_index} ---\n"
                 f"[Table extracted from page {page_number}, table {table_index}]\n"
@@ -401,7 +428,6 @@ def extract_pdf_page_tables(pdfplumber_page, page_number):
             rendered_tables.append(
                 f"[Warning: Table extraction failed on page {page_number}: {e}]"
             )
-
     return rendered_tables
 
 
@@ -453,10 +479,17 @@ def extract_text_from_pdf(file_path):
                     )
                     continue
 
+                found_tables = []
+                table_bboxes = []
+                if pdfplumber_page is not None:
+                    found_tables = _find_pdf_page_tables(pdfplumber_page)
+                    table_bboxes = _get_table_bboxes(found_tables)
+
                 page_text, _ = extract_pdf_page_text(
                     pdfplumber_page,
                     pypdf_page,
                     page_number,
+                    table_bboxes=table_bboxes,
                 )
 
                 if page_text:
@@ -475,9 +508,9 @@ def extract_text_from_pdf(file_path):
                             f"[Warning: OCR failed on page {page_number}: {e}]"
                         )
 
-                if pdfplumber_page is not None:
+                if found_tables:
                     output_parts.extend(
-                        extract_pdf_page_tables(pdfplumber_page, page_number)
+                        extract_pdf_page_tables_from_objects(found_tables, page_number)
                     )
 
                 output_parts.extend(page_image_markers.get(page_number, []))
@@ -502,7 +535,14 @@ def extract_text_from_txt(file_path):
 def docx_table_to_rows(table):
     rows = []
     for row in table.rows:
-        rows.append([cell.text for cell in row.cells])
+        seen_tcs = set()
+        cells = []
+        for cell in row.cells:
+            tc_id = id(cell._tc)
+            if tc_id not in seen_tcs:
+                seen_tcs.add(tc_id)
+                cells.append(cell.text)
+        rows.append(cells)
     return rows
 
 
@@ -521,10 +561,38 @@ def append_docx_table(text_parts, marker, table):
 def extract_text_from_docx(file_path):
     """
     DOCX dosyasından paragraph, table, header ve footer metinlerini çıkarır.
+    Görüntüler belgede göründükleri konumda satır içine yerleştirilir.
     """
     file_path = Path(file_path)
+    image_dir = get_document_image_dir(file_path)
+    rid_maps, image_warnings = _extract_docx_images_with_rid_map(file_path, image_dir)
+
+    main_rid_map = rid_maps.get("word/document.xml", {})
+    header_rid_map = {}
+    footer_rid_map = {}
+    for part_name, rid_map in rid_maps.items():
+        if "header" in part_name.lower():
+            header_rid_map.update(rid_map)
+        elif "footer" in part_name.lower():
+            footer_rid_map.update(rid_map)
+
     doc = Document(file_path)
     text_parts = []
+    text_parts.extend(image_warnings)
+
+    placed_rids = set()
+    inline_counter = [0]
+
+    def _place_images(paragraph, rid_map):
+        for rid in _get_paragraph_image_rids(paragraph):
+            if rid in rid_map and rid not in placed_rids:
+                inline_counter[0] += 1
+                text_parts.append(
+                    format_image_marker(
+                        rid_map[rid], image_number=inline_counter[0], source="docx"
+                    )
+                )
+                placed_rids.add(rid)
 
     text_parts.append("--- Document Paragraphs ---")
     try:
@@ -532,6 +600,7 @@ def extract_text_from_docx(file_path):
             paragraph_text = clean_text(paragraph.text)
             if paragraph_text:
                 text_parts.append(paragraph_text)
+            _place_images(paragraph, main_rid_map)
     except Exception as e:
         text_parts.append(f"[Warning: Document paragraph extraction failed: {e}]")
 
@@ -545,6 +614,7 @@ def extract_text_from_docx(file_path):
                 paragraph_text = clean_text(paragraph.text)
                 if paragraph_text:
                     text_parts.append(paragraph_text)
+                _place_images(paragraph, header_rid_map)
         except Exception as e:
             text_parts.append(
                 f"[Warning: Header extraction failed for section {section_index}: {e}]"
@@ -563,6 +633,7 @@ def extract_text_from_docx(file_path):
                 paragraph_text = clean_text(paragraph.text)
                 if paragraph_text:
                     text_parts.append(paragraph_text)
+                _place_images(paragraph, footer_rid_map)
         except Exception as e:
             text_parts.append(
                 f"[Warning: Footer extraction failed for section {section_index}: {e}]"
@@ -575,12 +646,20 @@ def extract_text_from_docx(file_path):
                 table,
             )
 
-    docx_image_markers, image_warnings = extract_images_from_docx(file_path)
-    text_parts.extend(image_warnings)
-
-    if docx_image_markers:
+    # Herhangi bir nedenle satır içine yerleştirilemeyen görseller (örn. tablo hücresindeki)
+    remaining = {
+        path
+        for rid_map in rid_maps.values()
+        for rid, path in rid_map.items()
+        if rid not in placed_rids
+    }
+    if remaining:
         text_parts.append("--- Extracted Images ---")
-        text_parts.extend(docx_image_markers)
+        for path in sorted(remaining):
+            inline_counter[0] += 1
+            text_parts.append(
+                format_image_marker(path, image_number=inline_counter[0], source="docx")
+            )
 
     return "\n\n".join(part for part in text_parts if part and part.strip())
 

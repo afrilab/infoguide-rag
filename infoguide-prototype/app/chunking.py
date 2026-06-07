@@ -35,10 +35,24 @@ def extract_page_number(line):
 
 
 def is_table_marker(line):
+    return bool(re.match(r"^---.*\bTable\s+\d+", line.strip(), re.IGNORECASE))
+
+
+def get_heading_level(line):
     line = line.strip()
-    return (
-        line.startswith("--- Page") and "Tables" in line
-    ) or re.match(r"^Table\s+\d+:", line, re.IGNORECASE)
+
+    md_match = re.match(r"^(#+)\s+", line)
+    if md_match:
+        return len(md_match.group(1))
+
+    num_match = re.match(r"^(\d+(?:\.\d+)*)\.?\s+", line)
+    if num_match:
+        return len(num_match.group(1).split("."))
+
+    if re.match(r"^(Chapter|Section|CHAPTER|SECTION)\s+\d+", line, re.IGNORECASE):
+        return 1
+
+    return 1
 
 
 def is_heading(line):
@@ -60,15 +74,21 @@ def is_heading(line):
         return False
 
     heading_patterns = [
-        r"^\d+(\.\d+)*\.?\s+.+$",                          # 1 Intro, 1. Intro, 2.1 Intro
-        r"^(Chapter|Section)\s+\d+.*$",                    # Chapter 1, Section 2
-        r"^(CHAPTER|SECTION)\s+\d+.*$",                    # CHAPTER 1, SECTION 2
-        r"^#+\s+.+$",                                      # Markdown headings
-        r"^[A-ZÇĞİÖŞÜ0-9][A-ZÇĞİÖŞÜ0-9\s\-:()/]{4,}$",    # ALL CAPS headings
+        r"^\d+(\.\d+)*\.?\s+.+$",          # 1 Intro, 1. Intro, 2.1 Intro
+        r"^(Chapter|Section)\s+\d+.*$",    # Chapter 1, Section 2
+        r"^(CHAPTER|SECTION)\s+\d+.*$",    # CHAPTER 1, SECTION 2
+        r"^#+\s+.+$",                      # Markdown headings
     ]
 
     for pattern in heading_patterns:
         if re.match(pattern, line):
+            return True
+
+    # ALL CAPS: harf sayısı rakam sayısından fazla olmalı (ISBN, sürüm numaraları vb. elenir)
+    if re.match(r"^[A-ZÇĞİÖŞÜ0-9][A-ZÇĞİÖŞÜ0-9\s\-:()/]{4,}$", line):
+        letter_count = sum(1 for c in line if c.isalpha())
+        digit_count = sum(1 for c in line if c.isdigit())
+        if letter_count > digit_count:
             return True
 
     return False
@@ -184,27 +204,45 @@ def split_text_recursive(text, max_chars, overlap_chars):
     return chunks
 
 
-def split_text_simple(text, max_chars):
-    paragraphs = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
 
-    chunks = []
-    current = ""
+_ARTIFACT_PATTERNS = [
+    re.compile(r"^--- Document Paragraphs ---$"),
+    re.compile(r"^--- Extracted Images ---$"),
+    re.compile(r"^--- Section \d+ (Header|Footer) ---$"),
+    re.compile(r"^\[Table extracted"),
+    re.compile(r"^\[Warning:"),
+]
 
-    for paragraph in paragraphs:
-        candidate = (current + "\n\n" + paragraph).strip() if current else paragraph
 
-        if len(candidate) <= max_chars:
-            current = candidate
-        else:
-            if current.strip():
-                chunks.append(current.strip())
+def _is_artifact_line(line):
+    s = line.strip()
+    return any(p.match(s) for p in _ARTIFACT_PATTERNS)
 
-            current = paragraph
 
-    if current.strip():
-        chunks.append(current.strip())
+def _clean_image_marker(line):
+    """data/images/... path'ini kısaltır, sadece page/image numarasını bırakır."""
+    match = re.match(
+        r"^\[Image extracted:[^|]+\|\s*(?:source=\w+\s*\|?\s*)?(?:page=(\d+)\s*\|?\s*)?image=(\d+)\]",
+        line.strip(),
+    )
+    if match:
+        page = match.group(1)
+        img = match.group(2)
+        return f"[Image: page={page}, image={img}]" if page else f"[Image: image={img}]"
+    return line
 
-    return chunks
+
+def strip_extraction_artifacts(text):
+    """Chunk içeriğine girmemesi gereken ingestion marker'larını temizler."""
+    lines = []
+    for line in text.splitlines():
+        if _is_artifact_line(line):
+            continue
+        if line.strip().startswith("[Image extracted:"):
+            lines.append(_clean_image_marker(line))
+            continue
+        lines.append(line)
+    return "\n".join(lines)
 
 
 def build_embedded_text(document_title, heading, content):
@@ -258,11 +296,18 @@ def detect_document_title(text):
         if is_page_marker(line):
             continue
 
+        if is_table_marker(line):
+            continue
+
         if any(re.match(pattern, lower_line, re.IGNORECASE) for pattern in bad_patterns):
             continue
 
         # Prefer lines that look like document titles
-        if any(keyword in lower_line for keyword in ["policy", "framework", "guideline", "procedure", "manual", "report"]):
+        if any(keyword in lower_line for keyword in [
+            "policy", "framework", "guideline", "procedure", "manual", "report",
+            "politika", "yönetmelik", "yönerge", "rehber", "kılavuz",
+            "prosedür", "rapor", "çerçeve", "standart", "talimat",
+        ]):
             title_candidates.append(line)
 
     if title_candidates:
@@ -276,6 +321,12 @@ def detect_document_title(text):
         if len(line) < 5 or len(line) > 120:
             continue
 
+        if is_page_marker(line):
+            continue
+
+        if is_table_marker(line):
+            continue
+
         if any(re.match(pattern, lower_line, re.IGNORECASE) for pattern in bad_patterns):
             continue
 
@@ -286,53 +337,140 @@ def detect_document_title(text):
 
 def extract_sections(text):
     lines = text.splitlines()
-
     sections = []
 
     current_heading = "Document Start"
+    current_breadcrumb = "Document Start"
     current_content = []
     current_page = None
     section_start_page = None
 
-    for line in lines:
-        stripped_line = line.strip()
+    heading_stack = []  # list of (level, heading_text)
 
-        page_number = extract_page_number(stripped_line)
+    in_table = False
+    table_heading = None
+    table_breadcrumb = None
+    table_content_lines = []
+    table_start_page = None
+
+    def _breadcrumb(stack, heading):
+        if not stack:
+            return heading
+        return " > ".join([h for _, h in stack] + [heading])
+
+    for line in lines:
+        stripped = line.strip()
+
+        page_number = extract_page_number(stripped)
         if page_number is not None:
             current_page = page_number
             continue
 
-        if not stripped_line:
-            current_content.append("")
-            continue
-
-        if is_heading(stripped_line):
+        if is_table_marker(stripped):
             if current_content:
                 sections.append({
                     "heading": current_heading,
+                    "breadcrumb": current_breadcrumb,
                     "content": "\n".join(current_content).strip(),
                     "start_page": section_start_page,
                     "end_page": current_page,
+                    "chunk_type": "text",
+                })
+                current_content = []
+                section_start_page = None
+            if in_table and table_content_lines:
+                sections.append({
+                    "heading": table_heading,
+                    "breadcrumb": table_breadcrumb,
+                    "content": "\n".join(table_content_lines).strip(),
+                    "start_page": table_start_page,
+                    "end_page": current_page,
+                    "chunk_type": "table",
+                })
+                table_content_lines = []
+            in_table = True
+            table_heading = stripped
+            table_breadcrumb = _breadcrumb(heading_stack, stripped)
+            table_start_page = current_page
+            continue
+
+        if in_table:
+            if stripped.startswith("|"):
+                table_content_lines.append(stripped)
+                continue
+            if table_content_lines:
+                sections.append({
+                    "heading": table_heading,
+                    "breadcrumb": table_breadcrumb,
+                    "content": "\n".join(table_content_lines).strip(),
+                    "start_page": table_start_page,
+                    "end_page": current_page,
+                    "chunk_type": "table",
+                })
+            table_content_lines = []
+            table_heading = None
+            table_breadcrumb = None
+            in_table = False
+
+        if not stripped:
+            current_content.append("")
+            continue
+
+        if is_heading(stripped):
+            if current_content:
+                sections.append({
+                    "heading": current_heading,
+                    "breadcrumb": current_breadcrumb,
+                    "content": "\n".join(current_content).strip(),
+                    "start_page": section_start_page,
+                    "end_page": current_page,
+                    "chunk_type": "text",
                 })
 
-            current_heading = stripped_line
+            level = get_heading_level(stripped)
+            while heading_stack and heading_stack[-1][0] >= level:
+                heading_stack.pop()
+
+            current_breadcrumb = _breadcrumb(heading_stack, stripped)
+            heading_stack.append((level, stripped))
+
+            current_heading = stripped
             current_content = []
             section_start_page = current_page
-        else:
-            if section_start_page is None:
-                section_start_page = current_page
+            continue
 
-            current_content.append(stripped_line)
+        if section_start_page is None:
+            section_start_page = current_page
+        current_content.append(stripped)
 
+    if in_table and table_content_lines:
+        sections.append({
+            "heading": table_heading,
+            "breadcrumb": table_breadcrumb,
+            "content": "\n".join(table_content_lines).strip(),
+            "start_page": table_start_page,
+            "end_page": current_page,
+            "chunk_type": "table",
+        })
     if current_content:
         sections.append({
             "heading": current_heading,
+            "breadcrumb": current_breadcrumb,
             "content": "\n".join(current_content).strip(),
             "start_page": section_start_page,
             "end_page": current_page,
+            "chunk_type": "text",
         })
 
-    return [section for section in sections if section["content"].strip()]
+    return [s for s in sections if s.get("content", "").strip()]
+
+
+def _extract_raw_content(embedded_text):
+    marker = "Content:\n"
+    idx = embedded_text.find(marker)
+    if idx != -1:
+        return embedded_text[idx + len(marker):]
+    return embedded_text
 
 
 def merge_small_chunks(chunks, min_chars=MIN_CHUNK_CHARS):
@@ -355,15 +493,28 @@ def merge_small_chunks(chunks, min_chars=MIN_CHUNK_CHARS):
         )
 
         max_chars = previous["metadata"].get("max_chunk_chars", DEFAULT_MAX_CHARS)
-        combined_text = previous_text + "\n\n" + current_text
 
-        if len(previous_text) < min_chars and same_section and len(combined_text) <= max_chars:
-            previous["text"] = combined_text
-            previous["char_count"] = len(combined_text)
-            previous["metadata"]["end_page"] = chunk["metadata"].get("end_page")
-            previous["metadata"]["merged_small_chunk"] = True
-        else:
-            merged.append(chunk)
+        is_table = (
+            previous["metadata"].get("chunk_type") == "table_chunk"
+            or chunk["metadata"].get("chunk_type") == "table_chunk"
+        )
+
+        if len(previous_text) < min_chars and same_section and not is_table:
+            prev_content = _extract_raw_content(previous_text).strip()
+            curr_content = _extract_raw_content(current_text).strip()
+            merged_text = build_embedded_text(
+                previous["metadata"].get("document_title"),
+                previous["metadata"].get("section_breadcrumb") or previous["metadata"].get("heading"),
+                prev_content + "\n\n" + curr_content,
+            )
+            if len(merged_text) <= max_chars:
+                previous["text"] = merged_text
+                previous["char_count"] = len(merged_text)
+                previous["metadata"]["end_page"] = chunk["metadata"].get("end_page")
+                previous["metadata"]["merged_small_chunk"] = True
+                continue
+
+        merged.append(chunk)
 
     for index, chunk in enumerate(merged, start=1):
         chunk["chunk_id"] = index
@@ -374,6 +525,7 @@ def merge_small_chunks(chunks, min_chars=MIN_CHUNK_CHARS):
 def chunk_text(text):
     logs = []
 
+    text = strip_extraction_artifacts(text)
     document_title = detect_document_title(text)
     sections = extract_sections(text)
 
@@ -387,20 +539,16 @@ def chunk_text(text):
     for section_index, section in enumerate(sections, start=1):
         heading = section["heading"]
         content = section["content"]
+        section_type = section.get("chunk_type", "text")
 
-        sub_chunks = split_text_recursive(
-            content,
-            max_chars=DEFAULT_MAX_CHARS,
-            overlap_chars=DEFAULT_OVERLAP_CHARS
-        )
+        breadcrumb = section.get("breadcrumb", heading)
 
-        for sub_index, sub_chunk in enumerate(sub_chunks, start=1):
+        if section_type == "table":
             final_text = build_embedded_text(
                 document_title=document_title,
-                heading=heading,
-                content=sub_chunk
+                heading=breadcrumb,
+                content=content,
             )
-
             chunks.append({
                 "chunk_id": chunk_id,
                 "heading": heading,
@@ -409,6 +557,42 @@ def chunk_text(text):
                 "metadata": {
                     "document_title": document_title,
                     "heading": heading,
+                    "section_breadcrumb": breadcrumb,
+                    "section_index": section_index,
+                    "sub_chunk_id": 1,
+                    "start_page": section.get("start_page"),
+                    "end_page": section.get("end_page"),
+                    "chunk_type": "table_chunk",
+                    "chunking_strategy": "Recommended",
+                    "max_chunk_chars": DEFAULT_MAX_CHARS,
+                    "chunk_overlap_chars": DEFAULT_OVERLAP_CHARS,
+                    "use_recursive": False,
+                },
+            })
+            chunk_id += 1
+            continue
+
+        sub_chunks = split_text_recursive(
+            content,
+            max_chars=DEFAULT_MAX_CHARS,
+            overlap_chars=DEFAULT_OVERLAP_CHARS,
+        )
+
+        for sub_index, sub_chunk in enumerate(sub_chunks, start=1):
+            final_text = build_embedded_text(
+                document_title=document_title,
+                heading=breadcrumb,
+                content=sub_chunk,
+            )
+            chunks.append({
+                "chunk_id": chunk_id,
+                "heading": heading,
+                "text": final_text,
+                "char_count": len(final_text),
+                "metadata": {
+                    "document_title": document_title,
+                    "heading": heading,
+                    "section_breadcrumb": breadcrumb,
                     "section_index": section_index,
                     "sub_chunk_id": sub_index,
                     "start_page": section.get("start_page"),
@@ -418,9 +602,8 @@ def chunk_text(text):
                     "max_chunk_chars": DEFAULT_MAX_CHARS,
                     "chunk_overlap_chars": DEFAULT_OVERLAP_CHARS,
                     "use_recursive": True,
-                }
+                },
             })
-
             chunk_id += 1
 
     chunks = merge_small_chunks(chunks)
@@ -432,9 +615,6 @@ def chunk_text(text):
 
     return chunks, logs
 
-
-def heading_based_chunk_text(text):
-    return chunk_text(text)
 
 
 def save_chunks(chunks, output_path=CHUNKS_OUTPUT_PATH):

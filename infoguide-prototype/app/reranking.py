@@ -9,7 +9,7 @@ def load_reranker_model():
     Cross-encoder reranker modelini yükler.
     Bu model query ile chunk'ı birlikte değerlendirir.
     """
-    reranker = CrossEncoder(RERANKER_MODEL_NAME)
+    reranker = CrossEncoder(RERANKER_MODEL_NAME, max_length=512)
     return reranker
 
 
@@ -33,7 +33,7 @@ def rerank_results(query, retrieved_results, reranker_model, top_k=5):
     pairs = []
 
     for result in retrieved_results:
-        pairs.append([query, result["text"]])
+        pairs.append([query, result.get("text", "")])
 
     scores = reranker_model.predict(pairs)
 

@@ -1,10 +1,10 @@
 import base64
 import json
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import numpy as np
-from PIL import Image as PILImage
 from openai import OpenAI
 from dotenv import load_dotenv
 import os
@@ -15,21 +15,50 @@ INDEXES_DIR = Path("data/indexes")
 EMBEDDINGS_OUTPUT_PATH = INDEXES_DIR / "embeddings.npy"
 METADATA_OUTPUT_PATH = INDEXES_DIR / "embeddings_metadata.json"
 
-MIN_IMAGE_WIDTH = 100
-MIN_IMAGE_HEIGHT = 100
-MIN_PIXEL_AREA = 15000   # ~122x122 minimum
-MIN_STD_DEV = 8.0        # below this = blank/near-uniform image
-
 VISION_MODEL = "gpt-4o"
+IMAGE_DESCRIPTION_MAX_WORKERS = 5
 SUPPORTED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"}
 
-IMAGE_DESCRIPTION_PROMPT = (
-    "Please provide a comprehensive and detailed description of this image. "
-    "Include: what the image shows, any visible text, charts or diagrams and their content, "
-    "tables and their data, logos or visual identifiers, and any other information "
-    "that would help someone understand this image without seeing it. "
-    "Be thorough — this description will be used for information retrieval."
-)
+IMAGE_DESCRIPTION_PROMPT = """\
+# Role and Objective
+You are writing a description of an image extracted from a corporate document \
+(policies, governance materials, reports). This description will be embedded \
+directly into a knowledge base alongside regular document text and will be the \
+only way readers learn what this image contains.
+
+# Instructions
+
+## Style
+- Write a natural, self-contained passage of prose — not a labeled report or \
+  numbered template. It should read like a normal paragraph of document text, \
+  not an analysis form.
+- Describe what the image communicates — its meaning, relationships, structure, \
+  or conclusions — rather than its layout. Avoid positional narration like \
+  "on the left..., on the right..., at the top...".
+- For charts and diagrams, explain what they show and what trend, flow, or \
+  structure they convey. For tables, explain what is being compared and the \
+  key takeaways, not just the grid layout.
+
+## Required content
+Within that natural prose, faithfully include:
+- Any text, titles, labels, legends, or captions visible in the image, \
+  transcribed exactly as they appear
+- Any numbers, percentages, dates, or statistics, exactly as shown
+- Names of organizations, people, or products that appear
+
+## Handling the image
+- This is a routine corporate document — describing logos, charts, diagrams, \
+  and photos that appear in it is expected and appropriate. Do not decline, \
+  hedge, or apologize.
+- If the image is purely decorative and carries no information of its own \
+  (e.g. a standalone company logo with nothing else in it), say so plainly in \
+  one short sentence rather than producing a lengthy analysis of it.
+
+# Final Instructions
+Do not interpret or infer beyond what is directly visible. Transcribe text \
+verbatim. Now write the description as a natural passage of prose, following \
+the instructions above.\
+"""
 
 
 def load_vision_client():
@@ -68,49 +97,6 @@ def collect_images(images_dir=IMAGES_DIR):
     )
 
 
-def is_meaningful_image(image_path):
-    """Returns (is_meaningful: bool, reason: str).
-
-    Filters out:
-    - Images smaller than MIN_IMAGE_WIDTH x MIN_IMAGE_HEIGHT
-    - Near-blank or near-uniform images (black screens, white pages, decorative rules)
-    """
-    try:
-        with PILImage.open(image_path) as img:
-            w, h = img.size
-
-            if w < MIN_IMAGE_WIDTH or h < MIN_IMAGE_HEIGHT:
-                return False, f"too small ({w}x{h} px)"
-
-            if w * h < MIN_PIXEL_AREA:
-                return False, f"area too small ({w * h} px²)"
-
-            gray = img.convert("L")
-            arr = np.array(gray, dtype=np.float32)
-            std = float(arr.std())
-
-            if std < MIN_STD_DEV:
-                return False, f"blank/uniform image (std={std:.1f})"
-
-            return True, "ok"
-
-    except Exception as e:
-        return False, f"could not open: {e}"
-
-
-def filter_meaningful_images(images):
-    """Returns (kept: list[Path], skipped: list[tuple[Path, str]])."""
-    kept = []
-    skipped = []
-    for path in images:
-        ok, reason = is_meaningful_image(path)
-        if ok:
-            kept.append(path)
-        else:
-            skipped.append((path, reason))
-    return kept, skipped
-
-
 def describe_image_with_gpt(image_path, client):
     image_path = Path(image_path)
     image_data = encode_image_to_base64(image_path)
@@ -133,7 +119,7 @@ def describe_image_with_gpt(image_path, client):
                 ],
             }
         ],
-        max_tokens=1000,
+        max_tokens=2000,
     )
 
     return response.choices[0].message.content.strip()
@@ -154,10 +140,10 @@ def _parse_image_path_meta(image_path):
     }
 
 
-def create_image_chunk(image_path, description, chunk_id, document_title=None):
+def create_image_chunk(image_path, description, chunk_id):
     meta = _parse_image_path_meta(image_path)
 
-    doc_title = document_title or meta["document_name"]
+    doc_title = meta["document_name"]
     page_label = f"Page {meta['page_number']}" if meta["page_number"] else "Unknown Page"
     image_label = f"Image {meta['image_number']}" if meta["image_number"] else "Image"
     heading = f"Image Description: {page_label} — {image_label}"
@@ -195,35 +181,36 @@ def _next_chunk_id(existing_chunks):
     return max(c.get("chunk_id", 0) for c in existing_chunks) + 1
 
 
-def _existing_doc_title(existing_chunks):
-    if not existing_chunks:
-        return None
-    return existing_chunks[0].get("metadata", {}).get("document_title")
-
-
 def save_chunks_with_image_descriptions(image_chunks, chunks_path=CHUNKS_OUTPUT_PATH):
     existing = load_existing_chunks(chunks_path)
-    all_chunks = existing + image_chunks
+    existing_image_paths = {
+        c.get("metadata", {}).get("image_path")
+        for c in existing
+        if c.get("metadata", {}).get("chunk_type") == "image_description"
+    }
+    new_chunks = [
+        c for c in image_chunks
+        if c.get("metadata", {}).get("image_path") not in existing_image_paths
+    ]
+    all_chunks = existing + new_chunks
     with open(chunks_path, "w", encoding="utf-8") as f:
         json.dump(all_chunks, f, ensure_ascii=False, indent=4)
     return all_chunks
 
 
 def append_image_embeddings(image_chunks, bge_model, progress_callback=None):
-    from embeddings import create_embeddings_one_by_one, MODEL_NAME
+    from embeddings import create_embeddings_batch, MODEL_NAME
 
     INDEXES_DIR.mkdir(parents=True, exist_ok=True)
 
-    existing_vectors = (
-        np.load(EMBEDDINGS_OUTPUT_PATH) if EMBEDDINGS_OUTPUT_PATH.exists() else None
-    )
-
+    existing_vectors = None
     existing_metadata = []
-    if METADATA_OUTPUT_PATH.exists():
+    if EMBEDDINGS_OUTPUT_PATH.exists() and METADATA_OUTPUT_PATH.exists():
+        existing_vectors = np.load(EMBEDDINGS_OUTPUT_PATH)
         with open(METADATA_OUTPUT_PATH, "r", encoding="utf-8") as f:
             existing_metadata = json.load(f)
 
-    new_vectors = create_embeddings_one_by_one(image_chunks, bge_model, progress_callback)
+    new_vectors = create_embeddings_batch(image_chunks, bge_model, progress_callback)
 
     all_vectors = (
         np.vstack([existing_vectors, new_vectors]) if existing_vectors is not None else new_vectors
@@ -259,34 +246,46 @@ def run_image_description(client, bge_model, progress_callback=None, images_dir=
 
     logs.append(f"Found {len(all_images)} image(s) total.")
 
-    kept, skipped = filter_meaningful_images(all_images)
-
-    for path, reason in skipped:
-        logs.append(f"  Skipped {path.name}: {reason}")
-
-    logs.append(f"{len(kept)} image(s) passed filtering, {len(skipped)} skipped.")
+    existing_chunks = load_existing_chunks()
+    already_described = {
+        c.get("metadata", {}).get("image_path")
+        for c in existing_chunks
+        if c.get("metadata", {}).get("chunk_type") == "image_description"
+    }
+    kept = [p for p in all_images if p.as_posix() not in already_described]
 
     if not kept:
-        logs.append("No meaningful images to describe after filtering.")
+        logs.append("All images already have descriptions. Skipping.")
         return [], logs
 
-    existing_chunks = load_existing_chunks()
     start_id = _next_chunk_id(existing_chunks)
-    doc_title = _existing_doc_title(existing_chunks)
+    total = len(kept)
+    results = [None] * total
+    completed_count = [0]
+
+    with ThreadPoolExecutor(max_workers=IMAGE_DESCRIPTION_MAX_WORKERS) as executor:
+        future_to_idx = {
+            executor.submit(describe_image_with_gpt, image_path, client): (i, image_path)
+            for i, image_path in enumerate(kept)
+        }
+        for future in as_completed(future_to_idx):
+            i, image_path = future_to_idx[future]
+            completed_count[0] += 1
+            if progress_callback:
+                progress_callback(completed_count[0], total, image_path.name)
+            try:
+                description = future.result()
+                results[i] = (image_path, description)
+                logs.append(f"[{completed_count[0]}/{total}] Described: {image_path.name}")
+            except Exception as e:
+                logs.append(f"[Warning] Failed to describe {image_path.name}: {e}")
 
     image_chunks = []
-
-    for index, image_path in enumerate(kept, start=1):
-        if progress_callback:
-            progress_callback(index, len(kept), image_path.name)
-
-        try:
-            description = describe_image_with_gpt(image_path, client)
-            chunk = create_image_chunk(image_path, description, start_id + index - 1, doc_title)
+    for result in results:
+        if result is not None:
+            image_path, description = result
+            chunk = create_image_chunk(image_path, description, start_id + len(image_chunks))
             image_chunks.append(chunk)
-            logs.append(f"[{index}/{len(kept)}] Described: {image_path.name}")
-        except Exception as e:
-            logs.append(f"[Warning] Failed to describe {image_path.name}: {e}")
 
     if image_chunks:
         save_chunks_with_image_descriptions(image_chunks)

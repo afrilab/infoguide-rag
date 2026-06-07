@@ -43,6 +43,11 @@ export const expandQuery = async (_query) => {
   return { ...MOCK_QUERY_EXPANSION }
 }
 
+export const decomposeQuery = async (_query) => {
+  await delay(900)
+  return { subQueries: [_query] }
+}
+
 export const retrieveChunks = async (_params) => {
   await delay(800)
   return { ...MOCK_RETRIEVAL, method: _params?.method ?? 'hybrid', topK: _params?.topK ?? 5 }

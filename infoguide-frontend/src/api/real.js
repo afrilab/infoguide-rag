@@ -42,6 +42,9 @@ export const describeImages = async (chunks) =>
 export const expandQuery = async (query) =>
   post('/expand-query', { query })
 
+export const decomposeQuery = async (query) =>
+  post('/decompose-query', { query })
+
 export const retrieveChunks = async ({ query, expandedQuery, method, topK }) =>
   post('/retrieve', { query, expanded_query: expandedQuery, method, top_k: topK })
 

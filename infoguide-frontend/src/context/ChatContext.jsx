@@ -140,7 +140,7 @@ export function ChatProvider({ children }) {
       const docIds = stateRef.current.chats
         .find((c) => c.id === chatId)
         ?.documents.filter((d) => d.status === 'ready')
-        .map((d) => d.id) ?? []
+        .map((d) => d.backendId) ?? []
       const result = await chatQuery({ query, documentIds: docIds })
       dispatch({
         type: 'ADD_ASSISTANT_MESSAGE',

@@ -7,6 +7,7 @@ export const STEP_IDS = [
   'embedding',
   'imageDescription',
   'queryExpansion',
+  'queryDecomposition',
   'retrieval',
   'reranking',
   'generation',

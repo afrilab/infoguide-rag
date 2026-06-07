@@ -51,7 +51,7 @@ export default function GenerationStep() {
 
   return (
     <StepCard
-      stepNum={9}
+      stepNum={10}
       title="Answer Generation"
       subtitle="Generate a grounded answer using only the retrieved context"
       status={status}

@@ -39,7 +39,7 @@ export default function RerankingStep() {
 
   return (
     <StepCard
-      stepNum={8}
+      stepNum={9}
       title="Reranking"
       subtitle="Cross-encoder reranker re-scores and re-orders retrieved chunks"
       status={status}

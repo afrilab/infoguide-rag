@@ -31,23 +31,19 @@ def load_chunks(input_path=CHUNKS_INPUT_PATH):
     return chunks
 
 
-def create_embeddings_one_by_one(chunks, embeddings, progress_callback=None):
+def create_embeddings_batch(chunks, embeddings, progress_callback=None, batch_size=32):
+    texts = [chunk["text"] for chunk in chunks]
     vectors = []
+    total = len(texts)
 
-    total_chunks = len(chunks)
-
-    for index, chunk in enumerate(chunks, start=1):
-        text = chunk["text"]
-
+    for start in range(0, total, batch_size):
+        batch = texts[start : start + batch_size]
+        batch_vectors = embeddings.embed_documents(batch)
+        vectors.extend(batch_vectors)
         if progress_callback:
-            progress_callback(index, total_chunks)
+            progress_callback(min(start + batch_size, total), total)
 
-        vector = embeddings.embed_query(text)
-        vectors.append(vector)
-
-    vectors = np.array(vectors, dtype=np.float32)
-
-    return vectors
+    return np.array(vectors, dtype=np.float32)
 
 
 def save_embeddings(chunks, vectors):

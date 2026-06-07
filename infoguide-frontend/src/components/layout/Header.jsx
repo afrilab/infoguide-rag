@@ -10,6 +10,7 @@ const STEP_META = {
   embedding:        { label: 'Embed',      phase: 'doc' },
   imageDescription: { label: 'Images',     phase: 'doc' },
   queryExpansion:   { label: 'Query',      phase: 'qry' },
+  queryDecomposition: { label: 'Decompose', phase: 'qry' },
   retrieval:        { label: 'Retrieve',   phase: 'qry' },
   reranking:        { label: 'Rerank',     phase: 'qry' },
   generation:       { label: 'Generate',   phase: 'qry' },

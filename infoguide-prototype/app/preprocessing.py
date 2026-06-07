@@ -10,11 +10,14 @@ def clean_invisible_chars(text):
     text = text.replace("\xa0", " ")
     text = text.replace("\u200b", "")
     text = text.replace("\ufeff", "")
+    text = text.replace("\u00ad", "")   # soft hyphen
+    text = text.replace("\u2028", "\n") # line separator
+    text = text.replace("\u2029", "\n") # paragraph separator
     return text
 
 
 def fix_hyphenated_words(text):
-    return re.sub(r"(\w)-\n(\w)", r"\1\2", text)
+    return re.sub(r"(\w)- ?\n(\w)", r"\1\2", text)
 
 
 def normalize_line_breaks(text):
@@ -50,6 +53,9 @@ def remove_repeated_headers_footers(text):
         for line in lines
         if line.strip()
         and not line.strip().startswith("--- Page")
+        and not line.strip().startswith("|")
+        and not line.strip().startswith("---")
+        and not line.strip().startswith("[")
         and len(line.strip()) < 80
     ]
 

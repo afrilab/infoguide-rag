@@ -1,6 +1,5 @@
 import os
 import numpy as np
-import faiss
 from dotenv import load_dotenv
 from openai import OpenAI
 
@@ -65,10 +64,48 @@ Expanded Query: ...
     return output, expanded_query
 
 
+def decompose_query_with_gpt(query, client):
+    prompt = f"""You are a query decomposition assistant for a RAG system.
+
+Analyze the following query. If it addresses a single focused concept, return it unchanged as one line. If it contains multiple distinct concepts or questions that each need independent retrieval, break it into as many atomic sub-queries as the query genuinely requires — do not force a fixed count.
+
+Each sub-query should:
+- Address a single specific concept
+- Be independently searchable in a document
+
+Original query:
+{query}
+
+Return ONLY the final sub-queries (or the original query if no decomposition is needed), one per line, no numbering or extra text:"""
+
+    response = client.chat.completions.create(
+        model=GPT_MODEL_NAME,
+        messages=[
+            {
+                "role": "system",
+                "content": "You are a query decomposition assistant. If the query is already focused, return it as-is. Otherwise decompose it. Return one query per line, no numbering."
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        temperature=0.1,
+        max_tokens=500,
+    )
+
+    output = response.choices[0].message.content.strip()
+    sub_queries = [line.strip() for line in output.splitlines() if line.strip()]
+    return sub_queries if sub_queries else [query]
+
+
 def create_query_embedding(query, embedding_model):
     query_vector = embedding_model.embed_query(query)
-    query_vector = np.array([query_vector], dtype=np.float32)
+    return np.array([query_vector], dtype=np.float32)
 
-    faiss.normalize_L2(query_vector)
 
-    return query_vector
+def create_sub_query_embeddings(sub_queries, embedding_model):
+    return [
+        np.array([embedding_model.embed_query(q)], dtype=np.float32)
+        for q in sub_queries
+    ]

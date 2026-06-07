@@ -19,11 +19,12 @@ export default function RetrievalStep() {
   const { status, data } = steps.retrieval
 
   const expandedQuery = steps.queryExpansion.data?.expandedQuery ?? query
+  const subQueries = steps.queryDecomposition.data?.subQueries ?? null
 
   const handleRun = async () => {
     startStep('retrieval')
     try {
-      const result = await retrieveChunks({ query, expandedQuery, method: retrievalMethod, topK })
+      const result = await retrieveChunks({ query, expandedQuery, subQueries, method: retrievalMethod, topK })
       completeStep('retrieval', result)
     } catch (e) {
       errorStep('retrieval', e.message)
@@ -35,7 +36,7 @@ export default function RetrievalStep() {
 
   return (
     <StepCard
-      stepNum={7}
+      stepNum={8}
       title="Retrieval"
       subtitle="Find the most relevant chunks for the query"
       status={status}

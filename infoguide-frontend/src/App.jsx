@@ -10,6 +10,7 @@ import ChunkingStep from './components/steps/ChunkingStep'
 import EmbeddingStep from './components/steps/EmbeddingStep'
 import ImageDescriptionStep from './components/steps/ImageDescriptionStep'
 import QueryExpansionStep from './components/steps/QueryExpansionStep'
+import QueryDecompositionStep from './components/steps/QueryDecompositionStep'
 import RetrievalStep from './components/steps/RetrievalStep'
 import RerankingStep from './components/steps/RerankingStep'
 import GenerationStep from './components/steps/GenerationStep'
@@ -22,6 +23,7 @@ const STEP_COMPONENTS = {
   embedding: EmbeddingStep,
   imageDescription: ImageDescriptionStep,
   queryExpansion: QueryExpansionStep,
+  queryDecomposition: QueryDecompositionStep,
   retrieval: RetrievalStep,
   reranking: RerankingStep,
   generation: GenerationStep,
@@ -34,6 +36,7 @@ const PHASE_LABELS = {
   embedding: 'Document Processing',
   imageDescription: 'Document Processing',
   queryExpansion: 'Query Pipeline',
+  queryDecomposition: 'Query Pipeline',
   retrieval: 'Query Pipeline',
   reranking: 'Query Pipeline',
   generation: 'Query Pipeline',

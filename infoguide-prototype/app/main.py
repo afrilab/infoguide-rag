@@ -9,7 +9,7 @@ from embeddings import (
     MODEL_NAME as BGE_MODEL_NAME,
     load_bge_model,
     load_chunks,
-    create_embeddings_one_by_one,
+    create_embeddings_batch,
     save_embeddings
 )
 
@@ -17,7 +17,9 @@ from query_processing import (
     GPT_MODEL_NAME,
     load_gpt_client,
     expand_query_with_gpt,
-    create_query_embedding
+    decompose_query_with_gpt,
+    create_query_embedding,
+    create_sub_query_embeddings,
 )
 
 from retrieval import (
@@ -27,21 +29,121 @@ from retrieval import (
     build_bm25_index,
     retrieve_with_bm25,
     retrieve_hybrid,
+    retrieve_multi_query,
 )
-from generation import (
-    GPT_MODEL_NAME,
-    load_gpt_client,
-    generate_answer_with_gpt
-)
+from generation import generate_answer_with_gpt
 from reranking import load_reranker_model, rerank_results
 from image_description import (
     VISION_MODEL,
     load_vision_client,
     collect_images,
-    filter_meaningful_images,
     run_image_description,
     IMAGES_DIR,
 )
+import webbrowser
+from pathlib import Path
+
+RAW_DATA_DIR = Path("data/raw")
+
+
+def show_chunk_source(chunk, key_suffix=""):
+    metadata = chunk.get("metadata", {})
+    chunk_type = metadata.get("chunk_type", "chunk")
+
+    if chunk_type == "image_description":
+        image_path = metadata.get("image_path")
+        if image_path:
+            img_path = Path(image_path)
+            if img_path.exists():
+                st.caption(f"Source image: {img_path.name}")
+                st.image(str(img_path), use_container_width=True)
+            else:
+                st.warning(f"Image file not found: {image_path}")
+        else:
+            st.caption("No image path in metadata.")
+        return
+
+    source_file = metadata.get("source_file")
+    start_page = metadata.get("start_page")
+
+    if not source_file:
+        st.caption("No source file information in metadata.")
+        return
+
+    pdf_path = RAW_DATA_DIR / source_file
+    if not pdf_path.exists():
+        st.warning(f"Source file not found: {pdf_path}")
+        return
+
+    ext = source_file.rsplit(".", 1)[-1].lower() if "." in source_file else ""
+    page_label = f"· Page {start_page}" if start_page else ""
+    st.caption(f"📄 {source_file}{page_label}")
+
+    if st.button("Open in local viewer", key=f"open_pdf_{key_suffix}"):
+        if ext == "pdf":
+            import tempfile, threading, time, os
+            import fitz
+
+            chunk_text = chunk.get("text", "")
+            marker = "Content:\n"
+            idx = chunk_text.find(marker)
+            content_text = chunk_text[idx + len(marker):].strip() if idx != -1 else chunk_text.strip()
+            end_page = metadata.get("end_page") or start_page
+
+            def _open_with_highlight():
+                tmp_pdf_path = None
+                tmp_html_path = None
+                try:
+                    doc = fitz.open(str(pdf_path.resolve()))
+                    heading_text = metadata.get("heading", "")
+                    if start_page:
+                        for pg_num in range(start_page, min((end_page or start_page) + 1, len(doc) + 1)):
+                            page = doc[pg_num - 1]
+                            search_lines = []
+                            if heading_text:
+                                search_lines.append(heading_text)
+                            search_lines.extend(
+                                line.strip() for line in content_text.splitlines()
+                                if len(line.strip()) > 15
+                            )
+                            for line in search_lines:
+                                for inst in page.search_for(line):
+                                    annot = page.add_highlight_annot(inst)
+                                    annot.update()
+                    f = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+                    tmp_pdf_path = f.name
+                    f.close()
+                    doc.save(tmp_pdf_path)
+                    doc.close()
+
+                    uri = Path(tmp_pdf_path).as_uri()
+                    if start_page:
+                        uri += f"#page={start_page}"
+                    f2 = tempfile.NamedTemporaryFile(
+                        mode="w", suffix=".html", delete=False, encoding="utf-8"
+                    )
+                    tmp_html_path = f2.name
+                    f2.write(
+                        f'<html><head><script>window.location="{uri}";</script></head><body></body></html>'
+                    )
+                    f2.close()
+                    webbrowser.open(Path(tmp_html_path).as_uri())
+
+                    time.sleep(15)
+                finally:
+                    for p in [tmp_pdf_path, tmp_html_path]:
+                        if p:
+                            try:
+                                os.unlink(p)
+                            except Exception:
+                                pass
+
+            threading.Thread(target=_open_with_highlight, daemon=True).start()
+        else:
+            import os
+            os.startfile(str(pdf_path.resolve()))
+
+
 st.set_page_config(
     page_title="InfoGuide",
     page_icon="📄",
@@ -159,41 +261,53 @@ def show_ingestion_page():
     )
 
     st.markdown(
-        '<div class="subtitle">Step 1: Upload a document and run ingestion.</div>',
+        '<div class="subtitle">Step 1: Upload one or more documents and run ingestion.</div>',
         unsafe_allow_html=True
     )
 
-    uploaded_file = st.file_uploader(
-        "Upload your document",
-        type=["pdf", "txt", "docx"]
+    uploaded_files = st.file_uploader(
+        "Upload your documents",
+        type=["pdf", "txt", "docx"],
+        accept_multiple_files=True
     )
 
-    if uploaded_file is not None:
-        st.success(f"File uploaded: {uploaded_file.name}")
+    if uploaded_files:
+        st.success(f"{len(uploaded_files)} file(s) selected: {', '.join(f.name for f in uploaded_files)}")
 
         if st.button("Run Ingestion"):
-            try:
-                file_path = save_uploaded_file(uploaded_file)
-                extracted_text = extract_text(file_path)
+            extracted_texts = []
+            progress_bar = st.progress(0)
+            all_succeeded = True
 
-                st.session_state["uploaded_file_path"] = str(file_path)
-                st.session_state["extracted_text"] = extracted_text
+            for i, uploaded_file in enumerate(uploaded_files, start=1):
+                try:
+                    file_path = save_uploaded_file(uploaded_file)
+                    text = extract_text(file_path)
+                    extracted_texts.append({"filename": uploaded_file.name, "text": text})
+                    st.info(f"[{i}/{len(uploaded_files)}] Extracted: {uploaded_file.name}")
+                except Exception as e:
+                    st.error(f"Ingestion failed for {uploaded_file.name}: {e}")
+                    all_succeeded = False
+                progress_bar.progress(i / len(uploaded_files))
+
+            if extracted_texts:
+                st.session_state["extracted_texts"] = extracted_texts
                 st.session_state["ingestion_done"] = True
-
-                st.success("Ingestion completed successfully.")
-
-            except Exception as e:
-                st.error(f"Ingestion failed: {e}")
+                if all_succeeded:
+                    st.success("Ingestion completed successfully.")
 
     if st.session_state.get("ingestion_done"):
         st.markdown("---")
         st.subheader("Extracted Text Preview")
 
-        st.text_area(
-            "Preview",
-            st.session_state["extracted_text"],
-            height=300
-        )
+        for item in st.session_state["extracted_texts"]:
+            with st.expander(item["filename"]):
+                st.text_area(
+                    f"Preview — {item['filename']}",
+                    item["text"],
+                    height=200,
+                    key=f"preview_{item['filename']}"
+                )
 
         st.markdown("---")
         st.success("Step 1 completed: Ingestion")
@@ -210,46 +324,52 @@ def show_preprocessing_page():
     )
 
     st.markdown(
-        '<div class="subtitle">Step 2: Clean and prepare the extracted text before chunking.</div>',
+        '<div class="subtitle">Step 2: Clean and prepare the extracted texts before chunking.</div>',
         unsafe_allow_html=True
     )
 
     st.success("Ingestion data is ready.")
 
-    st.subheader("Original Extracted Text")
-
-    st.text_area(
-        "Original Text",
-        st.session_state.get("extracted_text", ""),
-        height=300
-    )
+    st.subheader("Original Extracted Texts")
+    for item in st.session_state.get("extracted_texts", []):
+        with st.expander(item["filename"]):
+            st.text_area(
+                f"Original — {item['filename']}",
+                item["text"],
+                height=200,
+                key=f"orig_{item['filename']}"
+            )
 
     if st.button("Run Preprocessing"):
         try:
-            original_text = st.session_state.get("extracted_text", "")
+            extracted_texts = st.session_state.get("extracted_texts", [])
+            preprocessed_texts = []
+            all_logs = []
 
-            preprocessed_text, logs = preprocess_text(original_text)
+            for item in extracted_texts:
+                preprocessed_text, logs = preprocess_text(item["text"])
+                preprocessed_texts.append({"filename": item["filename"], "text": preprocessed_text})
+                all_logs.extend(logs)
 
-            st.session_state["preprocessed_text"] = preprocessed_text
-            st.session_state["preprocessing_logs"] = logs
+            st.session_state["preprocessed_texts"] = preprocessed_texts
+            st.session_state["preprocessing_logs"] = all_logs
             st.session_state["preprocessing_done"] = True
 
-            for log in logs:
-                st.info(log)
-
-            st.success("Preprocessing completed successfully.")
+            st.success(f"Preprocessing completed for {len(preprocessed_texts)} document(s).")
 
         except Exception as e:
             st.error(f"Preprocessing failed: {e}")
 
     if st.session_state.get("preprocessing_done"):
-        st.subheader("Preprocessed Text")
-
-        st.text_area(
-            "Preprocessed Text",
-            st.session_state["preprocessed_text"],
-            height=300
-        )
+        st.subheader("Preprocessed Texts")
+        for item in st.session_state["preprocessed_texts"]:
+            with st.expander(item["filename"]):
+                st.text_area(
+                    f"Preprocessed — {item['filename']}",
+                    item["text"],
+                    height=200,
+                    key=f"prep_{item['filename']}"
+                )
 
         st.markdown("---")
         st.success("Step 2 completed: Preprocessing")
@@ -281,25 +401,35 @@ def show_chunking_page():
 
     if st.button("Start Chunking"):
         try:
-            preprocessed_text = st.session_state.get("preprocessed_text", "")
+            preprocessed_texts = st.session_state.get("preprocessed_texts", [])
 
-            if not preprocessed_text:
+            if not preprocessed_texts:
                 st.warning("No preprocessed text found. Please complete preprocessing first.")
                 return
 
-            with st.spinner("Chunking is running..."):
-                chunks, logs = chunk_text(preprocessed_text)
-                chunks_output_path = save_chunks(chunks)
+            all_chunks = []
+            all_logs = []
+            chunk_id = 1
 
-            st.session_state["chunks"] = chunks
-            st.session_state["chunking_logs"] = logs
+            with st.spinner("Chunking is running..."):
+                for item in preprocessed_texts:
+                    chunks, logs = chunk_text(item["text"])
+                    for chunk in chunks:
+                        chunk["chunk_id"] = chunk_id
+                        chunk["metadata"]["source_file"] = item["filename"]
+                        chunk_id += 1
+                    all_chunks.extend(chunks)
+                    all_logs.extend(logs)
+                    st.info(f"Chunked: {item['filename']} → {len(chunks)} chunks")
+
+                chunks_output_path = save_chunks(all_chunks)
+
+            st.session_state["chunks"] = all_chunks
+            st.session_state["chunking_logs"] = all_logs
             st.session_state["chunking_done"] = True
             st.session_state["chunks_output_path"] = str(chunks_output_path)
 
-            for log in logs:
-                st.info(log)
-
-            st.success("Chunking finished successfully.")
+            st.success(f"Chunking finished. Total: {len(all_chunks)} chunks across {len(preprocessed_texts)} document(s).")
 
         except Exception as e:
             st.error(f"Chunking failed: {e}")
@@ -321,15 +451,18 @@ def show_chunking_page():
 
             st.info(f"Heading: {metadata.get('heading', chunk.get('heading', '-'))}")
 
-            col1, col2, col3 = st.columns(3)
+            col1, col2, col3, col4 = st.columns(4)
 
             with col1:
-                st.caption(f"Section index: {metadata.get('section_index', '-')}")
+                st.caption(f"Source: {metadata.get('source_file', '-')}")
 
             with col2:
-                st.caption(f"Sub-chunk: {metadata.get('sub_chunk_id', '-')}")
+                st.caption(f"Section index: {metadata.get('section_index', '-')}")
 
             with col3:
+                st.caption(f"Sub-chunk: {metadata.get('sub_chunk_id', '-')}")
+
+            with col4:
                 st.caption(f"Characters: {chunk.get('char_count', '-')}")
 
             st.text_area(
@@ -398,7 +531,7 @@ def show_embedding_page():
                         f"Creating embedding for Chunk {current_chunk} / {total_chunks}"
                     )
 
-                vectors = create_embeddings_one_by_one(
+                vectors = create_embeddings_batch(
                     chunks,
                     bge_model,
                     progress_callback=update_progress
@@ -424,8 +557,6 @@ def show_embedding_page():
         st.success("Embedding step is finished.")
         st.info(f"Embeddings file: {st.session_state['embeddings_path']}")
         st.info(f"Metadata file: {st.session_state['embedding_metadata_path']}")
-    if st.session_state.get("embedding_done"):
-        st.markdown("---")
 
         if st.button("Continue to Image Description"):
             st.session_state["page"] = "image_description"
@@ -451,13 +582,7 @@ def show_image_description_page():
             st.rerun()
         return
 
-    kept, skipped = filter_meaningful_images(images)
-    st.info(f"Found {len(images)} image(s) total — **{len(kept)} will be described**, {len(skipped)} will be skipped (blank, too small, or uniform).")
-
-    if skipped:
-        with st.expander(f"Skipped images ({len(skipped)})"):
-            for path, reason in skipped:
-                st.caption(f"{path.name} — {reason}")
+    st.info(f"Found {len(images)} image(s). All will be described.")
 
     st.subheader("Vision Model")
     st.info(f"Model: {VISION_MODEL}")
@@ -585,9 +710,14 @@ def show_query_expansion_page():
                         original_query,
                         st.session_state["gpt_client"]
                     )
+                    sub_queries = decompose_query_with_gpt(
+                        original_query,
+                        st.session_state["gpt_client"]
+                    )
 
                 st.session_state["gpt_full_output"] = full_output
                 st.session_state["expanded_query"] = expanded_query
+                st.session_state["sub_queries"] = sub_queries
                 st.session_state["query_expanded"] = True
 
                 st.success("Query expansion completed.")
@@ -615,6 +745,10 @@ def show_query_expansion_page():
             height=120
         )
 
+        st.subheader("Sub-queries")
+        for i, sq in enumerate(st.session_state.get("sub_queries", []), start=1):
+            st.caption(f"{i}. {sq}")
+
         if st.button("Create Query Embedding"):
             try:
                 expanded_query = st.session_state["expanded_query"]
@@ -623,17 +757,22 @@ def show_query_expansion_page():
                     st.warning("BGE model is not loaded. Please go back to Embedding page.")
                     return
 
-                with st.spinner("Creating query embedding with BGE-M3..."):
+                with st.spinner("Creating query embeddings with BGE-M3..."):
                     query_vector = create_query_embedding(
                         expanded_query,
                         st.session_state["bge_model"]
                     )
+                    sub_query_vectors = create_sub_query_embeddings(
+                        st.session_state.get("sub_queries", [expanded_query]),
+                        st.session_state["bge_model"]
+                    )
 
                 st.session_state["query_vector"] = query_vector
+                st.session_state["sub_query_vectors"] = sub_query_vectors
                 st.session_state["query_embedding_done"] = True
 
-                st.success("Query embedding created successfully.")
-                st.info(f"Query vector shape: {query_vector.shape}")
+                st.success("Query embeddings created successfully.")
+                st.info(f"Query vector shape: {query_vector.shape} — {len(sub_query_vectors)} sub-query vector(s)")
 
             except Exception as e:
                 st.error(f"Query embedding creation failed: {e}")
@@ -725,12 +864,14 @@ def show_retrieval_page():
         if st.button("Run Retrieval"):
             try:
                 metadata = st.session_state["retrieval_metadata"]
-                expanded_query = st.session_state["expanded_query"]
+                original_query = st.session_state["original_query"]
+                sub_query_vectors = st.session_state.get("sub_query_vectors", [st.session_state["query_vector"]])
+                sub_queries_list = st.session_state.get("sub_queries", [original_query])
 
                 if retrieval_method == "Hybrid (FAISS + BM25)":
-                    results = retrieve_hybrid(
-                        st.session_state["query_vector"],
-                        expanded_query,
+                    results = retrieve_multi_query(
+                        sub_query_vectors,
+                        sub_queries_list,
                         st.session_state["faiss_index"],
                         st.session_state["bm25_index"],
                         metadata,
@@ -738,16 +879,20 @@ def show_retrieval_page():
                     )
 
                 elif retrieval_method == "FAISS":
-                    results = retrieve_with_faiss(
-                        st.session_state["query_vector"],
+                    results = retrieve_multi_query(
+                        sub_query_vectors,
+                        sub_queries_list,
                         st.session_state["faiss_index"],
+                        None,
                         metadata,
                         top_k=top_k,
                     )
 
                 else:
-                    results = retrieve_with_bm25(
-                        expanded_query,
+                    results = retrieve_multi_query(
+                        sub_query_vectors,
+                        sub_queries_list,
+                        None,
                         st.session_state["bm25_index"],
                         metadata,
                         top_k=top_k,
@@ -769,9 +914,10 @@ def show_retrieval_page():
 
         for rank, result in enumerate(results, start=1):
             st.markdown(f"### Rank {rank} | Chunk {result['chunk_id']}")
-            rrf_ranks = result.get("rrf_ranks")
-            if rrf_ranks:
-                label = f"RRF Score: {result['score']:.4f}  |  FAISS rank: {rrf_ranks[0] if len(rrf_ranks) > 0 else '—'}  |  BM25 rank: {rrf_ranks[1] if len(rrf_ranks) > 1 else '—'}"
+            faiss_rank = result.get("faiss_rank")
+            bm25_rank = result.get("bm25_rank")
+            if faiss_rank is not None or bm25_rank is not None:
+                label = f"RRF Score: {result['score']:.4f}  |  FAISS rank: {faiss_rank or '—'}  |  BM25 rank: {bm25_rank or '—'}"
                 st.info(label)
             else:
                 st.info(f"Score: {result['score']:.4f}")
@@ -860,7 +1006,7 @@ def show_reranking_page():
 
                 with st.spinner("Reranking retrieved chunks..."):
                     reranked_results = rerank_results(
-                        query=expanded_query,
+                        query=st.session_state["original_query"],
                         retrieved_results=retrieved_results,
                         reranker_model=st.session_state["reranker_model"],
                         top_k=rerank_top_k
@@ -916,7 +1062,6 @@ def show_generation_page():
     st.subheader("Generation Model")
     st.info(f"Model: {GPT_MODEL_NAME}")
 
-    # 🔥 LOAD CLIENT
     if st.button("Load GPT Client"):
         try:
             client = load_gpt_client()
@@ -934,14 +1079,18 @@ def show_generation_page():
     st.subheader("Context Chunks Used")
 
     for rank, chunk in enumerate(st.session_state["final_context_chunks"], start=1):
+        metadata = chunk.get("metadata", {})
+        heading_preview = metadata.get("heading", "")[:70]
         st.markdown(f"### Chunk {rank} | ID: {chunk['chunk_id']}")
         st.text_area(
             f"Chunk {chunk['chunk_id']}",
             chunk["text"],
-            height=150
+            height=150,
+            key=f"gen_chunk_{chunk['chunk_id']}"
         )
+        with st.expander("📄 View in Document"):
+            show_chunk_source(chunk, key_suffix=f"gen_{rank}")
 
-    # 🔥 GENERATE
     if st.session_state.get("gpt_generation_loaded"):
         if st.button("Generate Final Answer"):
             try:
