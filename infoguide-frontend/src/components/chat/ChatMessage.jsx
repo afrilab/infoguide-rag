@@ -1,22 +1,47 @@
 import { useState } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { ChevronDown, ChevronUp, ExternalLink, ThumbsUp, ThumbsDown, Copy, Check } from 'lucide-react'
 import PipelineDetails from './PipelineDetails'
 import { useChat } from '../../context/ChatContext'
 import { cn } from '../../utils/cn'
 
+const markdownComponents = {
+  p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+  strong: ({ children }) => <strong className="font-semibold text-slate-900">{children}</strong>,
+  em: ({ children }) => <em className="italic">{children}</em>,
+  ul: ({ children }) => <ul className="list-disc pl-5 mb-2 space-y-1 last:mb-0">{children}</ul>,
+  ol: ({ children }) => <ol className="list-decimal pl-5 mb-2 space-y-1 last:mb-0">{children}</ol>,
+  li: ({ children }) => <li>{children}</li>,
+  a: ({ children, href }) => (
+    <a href={href} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">
+      {children}
+    </a>
+  ),
+  code: ({ inline, children }) =>
+    inline ? (
+      <code className="px-1 py-0.5 rounded bg-slate-100 text-slate-700 text-xs">{children}</code>
+    ) : (
+      <code className="block rounded-lg bg-slate-100 text-slate-700 text-xs p-3 overflow-x-auto">{children}</code>
+    ),
+  blockquote: ({ children }) => (
+    <blockquote className="border-l-2 border-slate-300 pl-3 italic text-slate-600">{children}</blockquote>
+  ),
+  table: ({ children }) => (
+    <div className="overflow-x-auto mb-2">
+      <table className="border-collapse text-xs">{children}</table>
+    </div>
+  ),
+  th: ({ children }) => <th className="border border-slate-200 px-2 py-1 bg-slate-50 text-left font-semibold">{children}</th>,
+  td: ({ children }) => <td className="border border-slate-200 px-2 py-1">{children}</td>,
+}
+
 function MarkdownAnswer({ text }) {
   return (
-    <div className="text-sm text-slate-800 leading-relaxed space-y-2">
-      {text.split('\n').map((line, i) => {
-        if (/^\*\*\d+\./.test(line)) {
-          return <p key={i} className="font-semibold mt-2">{line.replace(/\*\*/g, '')}</p>
-        }
-        if (line.startsWith('**') && line.endsWith('**')) {
-          return <p key={i} className="font-semibold">{line.slice(2, -2)}</p>
-        }
-        if (line.trim() === '') return <div key={i} className="h-1" />
-        return <p key={i}>{line}</p>
-      })}
+    <div className="text-sm text-slate-800 leading-relaxed">
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+        {text}
+      </ReactMarkdown>
     </div>
   )
 }
